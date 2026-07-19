@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                    String               @id @default(uuid())
+  email                 String               @unique
+  mobile                String?              @unique
+  passwordHash          String
+  role                  Role
+  isActive              Boolean              @default(true)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  auditLogs             AuditLog[]
+  doctorProfile         DoctorProfile?
+  reviewedVerifications DoctorVerification[] @relation("VerificationReviewer")
+  patientProfile        PatientProfile?
+  refreshTokens         RefreshToken[]
+}
+
+model PatientProfile {
+  id           String        @id @default(uuid())
+  userId       String        @unique
+  fullName     String
+  dateOfBirth  DateTime?
+  gender       String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  appointments Appointment[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DoctorProfile {
+  id             String               @id @default(uuid())
+  userId         String               @unique
+  fullName       String
+  pmdcNumber     String               @unique
+  specialty      String
+  isVerified     Boolean              @default(false)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  appointments   Appointment[]
+  availabilities DoctorAvailability[]
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verification   DoctorVerification?
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Specialty {
+  id   String @id @default(uuid())
+  name String @unique
+}
+
+model DoctorVerification {
+  id              String             @id @default(uuid())
+  doctorProfileId String             @unique
+  status          VerificationStatus @default(PENDING)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  documents       DoctorDocument[]
+  doctorProfile   DoctorProfile      @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+  reviewedBy      User?              @relation("VerificationReviewer", fields: [reviewedById], references: [id])
+}
+
+model DoctorDocument {
+  id                   String             @id @default(uuid())
+  doctorVerificationId String
+  type                 DocumentType
+  storageKey           String
+  uploadedAt           DateTime           @default(now())
+  doctorVerification   DoctorVerification @relation(fields: [doctorVerificationId], references: [id], onDelete: Cascade)
+
+  @@index([doctorVerificationId])
+}
+
+model DoctorAvailability {
+  id                  String        @id @default(uuid())
+  doctorProfileId     String
+  dayOfWeek           Int
+  startMinutes        Int
+  endMinutes          Int
+  slotDurationMinutes Int
+  isActive            Boolean       @default(true)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  doctorProfile       DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+
+  @@index([doctorProfileId, dayOfWeek])
+}
+
+model Appointment {
+  id               String            @id @default(uuid())
+  patientProfileId String
+  doctorProfileId  String
+  slotStart        DateTime
+  slotEnd          DateTime
+  status           AppointmentStatus @default(PENDING)
+  consultationType ConsultationType
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  doctorProfile    DoctorProfile     @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+  patientProfile   PatientProfile    @relation(fields: [patientProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorProfileId, slotStart])
+  @@index([patientProfileId])
+  @@index([doctorProfileId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String
+  action      String
+  targetType  String
+  targetId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  actorUser   User     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId])
+  @@index([targetType, targetId])
+}
+
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DocumentType {
+  PMDC_CERT
+  CNIC
+  DEGREE
+}
+
+enum AppointmentStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  RESCHEDULE_PROPOSED
+  CONFIRMED
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ConsultationType {
+  VIDEO
+  AUDIO
+  CHAT
+}

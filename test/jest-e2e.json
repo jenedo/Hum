@@ -1,4 +1,7 @@
 {
+  // 20s: Neon free-tier cold starts + bcrypt cost-12 across multi-request auth flows
+  "testTimeout": 20000,
+  "maxWorkers": 1,
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
   "testEnvironment": "node",
