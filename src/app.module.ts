@@ -47,9 +47,10 @@ import { SecurityModule } from './security/security.module';
           censor: '[REDACTED]',
         },
         transport:
-          process.env.NODE_ENV !== 'production'
-            ? { target: 'pino-pretty', options: { singleLine: true } }
-            : undefined,
+          process.env.NODE_ENV === 'production' ||
+          process.env.NODE_ENV === 'test'
+            ? undefined
+            : { target: 'pino-pretty', options: { singleLine: true } },
       },
     }),
     ThrottlerModule.forRoot([

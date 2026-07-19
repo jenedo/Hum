@@ -106,21 +106,24 @@ describe('Availability (e2e)', () => {
   });
 
   afterAll(async () => {
-    if (prisma) {
-      await prisma.appointment.deleteMany({});
-      await prisma.doctorAvailability.deleteMany({});
-      await prisma.doctorDocument.deleteMany({});
-      await prisma.doctorVerification.deleteMany({});
-      await prisma.auditLog.deleteMany({});
-      await prisma.refreshToken.deleteMany({});
-      await prisma.patientProfile.deleteMany({});
-      await prisma.doctorProfile.deleteMany({});
-      await prisma.user.deleteMany({
-        where: { role: { in: [Role.PATIENT, Role.DOCTOR] } },
-      });
-    }
-    if (app) {
-      await app.close();
+    try {
+      if (prisma) {
+        await prisma.appointment.deleteMany({});
+        await prisma.doctorAvailability.deleteMany({});
+        await prisma.doctorDocument.deleteMany({});
+        await prisma.doctorVerification.deleteMany({});
+        await prisma.auditLog.deleteMany({});
+        await prisma.refreshToken.deleteMany({});
+        await prisma.patientProfile.deleteMany({});
+        await prisma.doctorProfile.deleteMany({});
+        await prisma.user.deleteMany({
+          where: { role: { in: [Role.PATIENT, Role.DOCTOR] } },
+        });
+      }
+    } finally {
+      if (app) {
+        await app.close();
+      }
     }
   });
 

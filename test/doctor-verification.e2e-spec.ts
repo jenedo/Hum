@@ -39,26 +39,6 @@ describe('Doctor Verification (e2e)', () => {
   let patientToken: string;
 
   beforeAll(async () => {
-    // Pre-warm Neon free-tier before Nest/Prisma $connect in onModuleInit
-    {
-      const { PrismaClient } = await import('@prisma/client');
-      const warmer = new PrismaClient();
-      for (let attempt = 1; attempt <= 5; attempt++) {
-        try {
-          await warmer.$connect();
-          await warmer.$queryRaw`SELECT 1`;
-          await warmer.$disconnect();
-          break;
-        } catch (error) {
-          await warmer.$disconnect().catch(() => undefined);
-          if (attempt === 5) {
-            throw error;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
-        }
-      }
-    }
-
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -137,22 +117,25 @@ describe('Doctor Verification (e2e)', () => {
   });
 
   afterAll(async () => {
-    if (prisma) {
-      await prisma.appointment.deleteMany({});
-      await prisma.doctorAvailability.deleteMany({});
-      await prisma.doctorDocument.deleteMany({});
-      await prisma.doctorVerification.deleteMany({});
-      await prisma.auditLog.deleteMany({});
-      await prisma.refreshToken.deleteMany({});
-      await prisma.patientProfile.deleteMany({});
-      await prisma.doctorProfile.deleteMany({});
-      // Keep ADMIN users so the seed remains usable across suites
-      await prisma.user.deleteMany({
-        where: { role: { in: [Role.PATIENT, Role.DOCTOR] } },
-      });
-    }
-    if (app) {
-      await app.close();
+    try {
+      if (prisma) {
+        await prisma.appointment.deleteMany({});
+        await prisma.doctorAvailability.deleteMany({});
+        await prisma.doctorDocument.deleteMany({});
+        await prisma.doctorVerification.deleteMany({});
+        await prisma.auditLog.deleteMany({});
+        await prisma.refreshToken.deleteMany({});
+        await prisma.patientProfile.deleteMany({});
+        await prisma.doctorProfile.deleteMany({});
+        // Keep ADMIN users so the seed remains usable across suites
+        await prisma.user.deleteMany({
+          where: { role: { in: [Role.PATIENT, Role.DOCTOR] } },
+        });
+      }
+    } finally {
+      if (app) {
+        await app.close();
+      }
     }
   });
 
