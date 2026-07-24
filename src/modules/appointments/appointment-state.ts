@@ -51,9 +51,7 @@ export function assertTransition(
   ctx: TransitionContext = {},
 ): void {
   if (!canTransition(from, to)) {
-    throw new BadRequestException(
-      `Invalid transition: ${from} -> ${to}`,
-    );
+    throw new BadRequestException(`Invalid transition: ${from} -> ${to}`);
   }
 
   if (to === AppointmentStatus.NO_SHOW) {

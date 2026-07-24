@@ -1,10 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  ConsultationType,
-  Role,
-  VerificationStatus,
-} from '@prisma/client';
+import { ConsultationType, Role, VerificationStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -170,8 +166,7 @@ describe('Appointments (e2e)', () => {
     expect(success.id).toBeDefined();
     expect(success.status).toBe('PENDING');
 
-    const conflict =
-      resA.status === 409 ? resA.body : resB.body;
+    const conflict: unknown = resA.status === 409 ? resA.body : resB.body;
     expect(JSON.stringify(conflict)).toContain('no longer available');
 
     const count = await prisma.appointment.count({

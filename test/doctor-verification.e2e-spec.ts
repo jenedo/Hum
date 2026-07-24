@@ -204,9 +204,9 @@ describe('Doctor Verification (e2e)', () => {
       doctorProfileId: string;
       status: string;
     }>;
-    expect(
-      pending.some((row) => row.doctorProfileId === doctorProfileId),
-    ).toBe(true);
+    expect(pending.some((row) => row.doctorProfileId === doctorProfileId)).toBe(
+      true,
+    );
 
     await request(app.getHttpServer())
       .post(`/api/v1/admin/doctors/${doctorProfileId}/verify`)

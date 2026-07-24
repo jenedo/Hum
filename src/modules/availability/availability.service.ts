@@ -12,7 +12,9 @@ export class AvailabilityService {
 
   async createForCurrentDoctor(userId: string, dto: CreateAvailabilityDto) {
     if (dto.endMinutes <= dto.startMinutes) {
-      throw new BadRequestException('endMinutes must be greater than startMinutes');
+      throw new BadRequestException(
+        'endMinutes must be greater than startMinutes',
+      );
     }
 
     const windowLength = dto.endMinutes - dto.startMinutes;
@@ -40,7 +42,8 @@ export class AvailabilityService {
 
     const overlaps = existing.some(
       (slot) =>
-        dto.startMinutes < slot.endMinutes && dto.endMinutes > slot.startMinutes,
+        dto.startMinutes < slot.endMinutes &&
+        dto.endMinutes > slot.startMinutes,
     );
 
     if (overlaps) {

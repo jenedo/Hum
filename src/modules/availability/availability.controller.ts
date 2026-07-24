@@ -19,10 +19,7 @@ export class AvailabilityController {
   @ApiOperation({
     summary: 'Create availability for the authenticated doctor (JWT-resolved)',
   })
-  create(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CreateAvailabilityDto,
-  ) {
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateAvailabilityDto) {
     return this.availabilityService.createForCurrentDoctor(user.userId, dto);
   }
 

@@ -77,7 +77,11 @@ export class DoctorVerificationService {
     };
   }
 
-  async verify(adminUserId: string, doctorProfileId: string, dto: VerifyDoctorDto) {
+  async verify(
+    adminUserId: string,
+    doctorProfileId: string,
+    dto: VerifyDoctorDto,
+  ) {
     if (!dto.approve && !dto.rejectionReason) {
       throw new BadRequestException(
         'rejectionReason is required when rejecting a doctor',
@@ -128,7 +132,9 @@ export class DoctorVerificationService {
 
     await this.auditService.record(
       adminUserId,
-      dto.approve ? 'DOCTOR_VERIFICATION_APPROVED' : 'DOCTOR_VERIFICATION_REJECTED',
+      dto.approve
+        ? 'DOCTOR_VERIFICATION_APPROVED'
+        : 'DOCTOR_VERIFICATION_REJECTED',
       'DoctorVerification',
       verification.id,
       {

@@ -1,11 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class CreateAvailabilityDto {
   @ApiProperty({ example: 1, description: '0=Sunday … 6=Saturday' })
@@ -14,13 +8,19 @@ export class CreateAvailabilityDto {
   @Max(6)
   dayOfWeek!: number;
 
-  @ApiProperty({ example: 540, description: 'Minutes from midnight (e.g. 9:00 = 540)' })
+  @ApiProperty({
+    example: 540,
+    description: 'Minutes from midnight (e.g. 9:00 = 540)',
+  })
   @IsInt()
   @Min(0)
   @Max(1439)
   startMinutes!: number;
 
-  @ApiProperty({ example: 1020, description: 'Minutes from midnight (e.g. 17:00 = 1020)' })
+  @ApiProperty({
+    example: 1020,
+    description: 'Minutes from midnight (e.g. 17:00 = 1020)',
+  })
   @IsInt()
   @Min(1)
   @Max(1440)

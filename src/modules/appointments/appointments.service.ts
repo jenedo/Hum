@@ -5,11 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  AppointmentStatus,
-  Prisma,
-  Role,
-} from '@prisma/client';
+import { AppointmentStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertTransition } from './appointment-state';
@@ -84,8 +80,7 @@ export class AppointmentsService {
         }
 
         const slotEnd = new Date(
-          slotStart.getTime() +
-            matchingWindow.slotDurationMinutes * 60_000,
+          slotStart.getTime() + matchingWindow.slotDurationMinutes * 60_000,
         );
 
         return tx.appointment.create({
@@ -198,8 +193,7 @@ export class AppointmentsService {
     }
 
     const isPatientOwner =
-      role === Role.PATIENT &&
-      appointment.patientProfile.userId === userId;
+      role === Role.PATIENT && appointment.patientProfile.userId === userId;
     const isDoctorOwner =
       role === Role.DOCTOR && appointment.doctorProfile.userId === userId;
 
@@ -234,9 +228,7 @@ export class AppointmentsService {
     }
 
     if (appointment.doctorProfileId !== doctor.id) {
-      throw new ForbiddenException(
-        'You do not own this appointment',
-      );
+      throw new ForbiddenException('You do not own this appointment');
     }
 
     assertTransition(appointment.status, to, {

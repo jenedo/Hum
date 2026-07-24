@@ -21,9 +21,11 @@ describe('Doctor ownership boundaries (unit)', () => {
         },
         doctorAvailability: {
           findMany: jest.fn().mockResolvedValue([]),
-          create: jest.fn().mockImplementation(({ data }) =>
-            Promise.resolve({ id: 'avail-1', ...data }),
-          ),
+          create: jest
+            .fn()
+            .mockImplementation(({ data }) =>
+              Promise.resolve({ id: 'avail-1', ...data }),
+            ),
         },
       };
 
@@ -45,7 +47,7 @@ describe('Doctor ownership boundaries (unit)', () => {
       expect(prisma.doctorAvailability.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           doctorProfileId: doctorAProfileId,
-        }),
+        }) as { doctorProfileId: string },
       });
       expect(result.doctorProfileId).toBe(doctorAProfileId);
       expect(result.doctorProfileId).not.toBe(doctorBProfileId);
@@ -101,9 +103,11 @@ describe('Doctor ownership boundaries (unit)', () => {
           create: jest.fn(),
         },
         doctorDocument: {
-          create: jest.fn().mockImplementation(({ data }) =>
-            Promise.resolve({ id: 'doc-1', ...data }),
-          ),
+          create: jest
+            .fn()
+            .mockImplementation(({ data }) =>
+              Promise.resolve({ id: 'doc-1', ...data }),
+            ),
         },
         $transaction: jest
           .fn()
@@ -130,7 +134,10 @@ describe('Doctor ownership boundaries (unit)', () => {
         data: expect.objectContaining({
           doctorVerificationId: 'verif-a',
           type: DocumentType.PMDC_CERT,
-        }),
+        }) as {
+          doctorVerificationId: string;
+          type: DocumentType;
+        },
       });
       expect(result.verificationId).toBe('verif-a');
       expect(prisma.doctorVerification.create).not.toHaveBeenCalled();
