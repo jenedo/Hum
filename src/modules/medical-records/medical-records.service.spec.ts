@@ -5,6 +5,8 @@ import { AuditService } from '../audit/audit.service';
 import { MedicalFileValidationService } from './medical-file-validation.service';
 import { MedicalRecordsService } from './medical-records.service';
 
+import { type SupabaseServerClient } from '../../supabase/supabase.constants';
+
 type MockPrisma = {
   patientProfile: { findUnique: jest.Mock };
   storedObject: {
@@ -18,6 +20,20 @@ type MockPrisma = {
 
 type MockAudit = {
   record: jest.Mock;
+};
+
+type MockSupabaseClient = {
+  storage: {
+    from: (_bucket: string) => {
+      createSignedUploadUrl: (
+        _path: string,
+      ) => Promise<{ data: { signedUrl: string } | null; error: null }>;
+      createSignedUrl: (
+        _path: string,
+        _expiresIn: number,
+      ) => Promise<{ data: { signedUrl: string } | null; error: null }>;
+    };
+  };
 };
 
 describe('MedicalRecordsService', () => {
@@ -39,7 +55,7 @@ describe('MedicalRecordsService', () => {
     };
     mockAudit = { record: jest.fn().mockResolvedValue({}) };
     validationService = new MedicalFileValidationService();
-    const mockSupabaseClient = {
+    const mockSupabaseClient: MockSupabaseClient = {
       storage: {
         from: jest.fn().mockReturnValue({
           createSignedUploadUrl: jest.fn().mockResolvedValue({
@@ -57,7 +73,7 @@ describe('MedicalRecordsService', () => {
       mockPrisma as unknown as PrismaService,
       mockAudit as unknown as AuditService,
       validationService,
-      mockSupabaseClient as any,
+      mockSupabaseClient as unknown as SupabaseServerClient,
     );
   });
 

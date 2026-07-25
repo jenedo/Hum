@@ -5,6 +5,22 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { MedicalRecordsService } from '../src/modules/medical-records/medical-records.service';
 
+interface StorageBucketRow {
+  id: string;
+  name: string;
+  public: boolean;
+  file_size_limit: string | number | null;
+  allowed_mime_types: string[] | null;
+}
+
+interface StoragePolicyRow {
+  policyname: string;
+  cmd: string;
+  roles: string;
+  qual: string | null;
+  with_check: string | null;
+}
+
 describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () => {
   jest.setTimeout(30000);
   let app: INestApplication;
@@ -32,11 +48,11 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
   });
 
   it('1. Verifies private-medical-records bucket exists in database', async () => {
-    const bucket = await prisma.$queryRawUnsafe<any[]>(`
+    const bucket = await prisma.$queryRaw<StorageBucketRow[]>`
       SELECT id, name, public, file_size_limit::text, allowed_mime_types
       FROM storage.buckets
       WHERE id = 'private-medical-records';
-    `);
+    `;
 
     expect(bucket.length).toBe(1);
     expect(bucket[0].id).toBe('private-medical-records');
@@ -44,11 +60,11 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
   });
 
   it('2. Verifies private-medical-records bucket is private (public = false)', async () => {
-    const bucket = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT public, file_size_limit::text, allowed_mime_types
+    const bucket = await prisma.$queryRaw<StorageBucketRow[]>`
+      SELECT id, name, public, file_size_limit::text, allowed_mime_types
       FROM storage.buckets
       WHERE id = 'private-medical-records';
-    `);
+    `;
 
     expect(bucket[0].public).toBe(false);
     expect(bucket[0].file_size_limit).toBe('5242880');
@@ -129,12 +145,12 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
   });
 
   it('5. Verifies broad anon & authenticated policies are removed (RLS default deny state)', async () => {
-    const policies = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT policyname, cmd, roles::text
+    const policies = await prisma.$queryRaw<StoragePolicyRow[]>`
+      SELECT policyname, cmd, roles::text, qual::text, with_check::text
       FROM pg_policies
       WHERE schemaname = 'storage' AND tablename = 'objects'
       ORDER BY policyname;
-    `);
+    `;
 
     // No broad policies exist; RLS default deny governs direct access
     expect(policies.length).toBe(0);
