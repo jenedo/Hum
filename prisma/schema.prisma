@@ -10,9 +10,10 @@ datasource db {
 
 model User {
   id                    String               @id @default(uuid())
+  supabaseAuthUserId    String?              @unique
   email                 String               @unique
   mobile                String?              @unique
-  passwordHash          String
+  passwordHash          String?
   role                  Role
   isActive              Boolean              @default(true)
   createdAt             DateTime             @default(now())
@@ -25,15 +26,17 @@ model User {
 }
 
 model PatientProfile {
-  id           String        @id @default(uuid())
-  userId       String        @unique
-  fullName     String
-  dateOfBirth  DateTime?
-  gender       String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  appointments Appointment[]
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String         @id @default(uuid())
+  userId        String         @unique
+  fullName      String
+  dateOfBirth   DateTime?
+  gender        String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  appointments  Appointment[]
+  prescriptions Prescription[]
+  storedObjects StoredObject[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model DoctorProfile {
@@ -47,6 +50,7 @@ model DoctorProfile {
   updatedAt      DateTime             @updatedAt
   appointments   Appointment[]
   availabilities DoctorAvailability[]
+  prescriptions  Prescription[]
   user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   verification   DoctorVerification?
 }
@@ -120,10 +124,65 @@ model Appointment {
   updatedAt        DateTime          @updatedAt
   doctorProfile    DoctorProfile     @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
   patientProfile   PatientProfile    @relation(fields: [patientProfileId], references: [id], onDelete: Cascade)
+  prescriptions    Prescription[]
 
   @@unique([doctorProfileId, slotStart])
   @@index([patientProfileId])
   @@index([doctorProfileId])
+}
+
+model Prescription {
+  id               String             @id @default(uuid())
+  appointmentId    String
+  doctorProfileId  String
+  patientProfileId String
+  status           PrescriptionStatus @default(ISSUED)
+  version          Int                @default(1)
+  supersedesId     String?
+  medicines        Json
+  instructions     String?
+  voidedAt         DateTime?
+  voidReason       String?
+  issuedAt         DateTime           @default(now())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  appointment    Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  doctorProfile  DoctorProfile  @relation(fields: [doctorProfileId], references: [id], onDelete: Restrict)
+  patientProfile PatientProfile @relation(fields: [patientProfileId], references: [id], onDelete: Restrict)
+  supersedes     Prescription?  @relation("PrescriptionRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
+  revisions      Prescription[] @relation("PrescriptionRevisions")
+
+  @@unique([appointmentId, version])
+  @@index([patientProfileId])
+  @@index([doctorProfileId])
+  @@index([appointmentId])
+}
+
+model StoredObject {
+  id              String            @id @default(uuid())
+  ownerId         String
+  patientId       String?
+  bucket          String
+  objectPath      String
+  mimeType        String
+  sizeBytes       Int
+  purpose         StoragePurpose    @default(MEDICAL_RECORD)
+  scanStatus      StorageScanStatus @default(PENDING)
+  isAvailable     Boolean           @default(false)
+  uploadExpiresAt DateTime
+  confirmedAt     DateTime?
+  validatedAt     DateTime?
+  rejectionReason String?
+  sha256          String?
+  createdAt       DateTime          @default(now())
+  deletedAt       DateTime?
+
+  patientProfile PatientProfile? @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@unique([bucket, objectPath])
+  @@index([ownerId])
+  @@index([patientId])
 }
 
 model AuditLog {
@@ -176,4 +235,27 @@ enum ConsultationType {
   VIDEO
   AUDIO
   CHAT
+}
+
+enum PrescriptionStatus {
+  ISSUED
+  SUPERSEDED
+  VOIDED
+}
+
+enum StorageScanStatus {
+  PENDING
+  VALIDATING
+  PASSED
+  REJECTED
+  QUARANTINED
+  ERROR
+}
+
+enum StoragePurpose {
+  MEDICAL_RECORD
+  LAB_RESULT
+  IMAGING
+  PRESCRIPTION_ATTACHMENT
+  OTHER
 }

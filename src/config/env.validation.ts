@@ -11,6 +11,14 @@ export const envValidationSchema = Joi.object({
   DIRECT_URL: Joi.string()
     .uri({ scheme: ['postgres', 'postgresql'] })
     .required(),
+  SUPABASE_URL: Joi.string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  SUPABASE_PUBLISHABLE_KEY: Joi.string().trim().min(1).required(),
+  SUPABASE_JWT_ISSUER: Joi.string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  SUPABASE_JWT_AUDIENCE: Joi.string().default('authenticated'),
   REDIS_URL: Joi.string()
     .uri({ scheme: ['redis', 'rediss'] })
     .required(),

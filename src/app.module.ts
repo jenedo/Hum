@@ -10,10 +10,14 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { DoctorVerificationModule } from './modules/doctor-verification/doctor-verification.module';
+import { DoctorsModule } from './modules/doctors/doctors.module';
+import { MedicalRecordsModule } from './modules/medical-records/medical-records.module';
+import { PrescriptionsModule } from './modules/prescriptions/prescriptions.module';
 import { UsersModule } from './modules/users/users.module';
-import { JwtAuthGuard } from './security/jwt-auth.guard';
 import { RolesGuard } from './security/roles.guard';
 import { SecurityModule } from './security/security.module';
+import { SupabaseAuthGuard } from './supabase/supabase-auth.guard';
+import { SupabaseModule } from './supabase/supabase.module';
 
 @Module({
   imports: [
@@ -43,6 +47,10 @@ import { SecurityModule } from './security/security.module';
             '*.DIRECT_URL',
             'REDIS_URL',
             '*.REDIS_URL',
+            'SUPABASE_PUBLISHABLE_KEY',
+            '*.SUPABASE_PUBLISHABLE_KEY',
+            'supabasePublishableKey',
+            '*.supabasePublishableKey',
           ],
           censor: '[REDACTED]',
         },
@@ -62,16 +70,20 @@ import { SecurityModule } from './security/security.module';
     ]),
     DatabaseModule,
     SecurityModule,
+    SupabaseModule,
     AuditModule,
     AuthModule,
     UsersModule,
     DoctorVerificationModule,
+    DoctorsModule,
     AvailabilityModule,
     AppointmentsModule,
+    PrescriptionsModule,
+    MedicalRecordsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: SupabaseAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

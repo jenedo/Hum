@@ -5,11 +5,14 @@ import { PrismaService } from '../../database/prisma.service';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getMe(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+  async getMe(identifier: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ id: identifier }, { supabaseAuthUserId: identifier }],
+      },
       select: {
         id: true,
+        supabaseAuthUserId: true,
         email: true,
         mobile: true,
         role: true,

@@ -10,6 +10,8 @@ import { Role, User, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import type { SupabasePrincipal } from '../../supabase/supabase-principal';
+import { BootstrapDto } from './dto/bootstrap.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -118,7 +120,7 @@ export class AuthService {
       where: { email: dto.email.toLowerCase() },
     });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !user.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -252,6 +254,78 @@ export class AuthService {
     };
 
     return new Date(Date.now() + amount * multipliers[unit]);
+  }
+
+  async bootstrap(
+    principal: SupabasePrincipal,
+    dto: BootstrapDto,
+  ): Promise<{ user: Omit<User, 'passwordHash'> }> {
+    if (dto.role === Role.ADMIN || dto.role === Role.SUPER_ADMIN) {
+      throw new BadRequestException(
+        'Cannot bootstrap ADMIN or SUPER_ADMIN role',
+      );
+    }
+
+    const existing = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { supabaseAuthUserId: principal.supabaseUserId },
+          ...(principal.email
+            ? [{ email: principal.email.toLowerCase() }]
+            : []),
+        ],
+      },
+      include: {
+        patientProfile: true,
+        doctorProfile: true,
+      },
+    });
+
+    if (existing) {
+      if (!existing.supabaseAuthUserId) {
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { supabaseAuthUserId: principal.supabaseUserId },
+        });
+      }
+      return { user: this.sanitizeUser(existing) };
+    }
+
+    const email =
+      principal.email?.toLowerCase() ??
+      `${principal.supabaseUserId}@supabase.local`;
+
+    const user = await this.prisma.user.create({
+      data: {
+        supabaseAuthUserId: principal.supabaseUserId,
+        email,
+        mobile: principal.phone ?? null,
+        role: dto.role,
+        ...(dto.role === Role.PATIENT
+          ? {
+              patientProfile: {
+                create: {
+                  fullName: dto.fullName || 'Patient',
+                },
+              },
+            }
+          : {
+              doctorProfile: {
+                create: {
+                  fullName: dto.fullName || 'Doctor',
+                  pmdcNumber: dto.pmdcNumber || `PMDC-${Date.now()}`,
+                  specialty: dto.specialty || 'General Physician',
+                },
+              },
+            }),
+      },
+      include: {
+        patientProfile: true,
+        doctorProfile: true,
+      },
+    });
+
+    return { user: this.sanitizeUser(user) };
   }
 
   private sanitizeUser(user: User): Omit<User, 'passwordHash'> {

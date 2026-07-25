@@ -24,6 +24,7 @@ describe('AuthService', () => {
 
   const baseUser: User = {
     id: 'user-1',
+    supabaseAuthUserId: null,
     email: 'patient@example.com',
     mobile: null,
     passwordHash: '',
