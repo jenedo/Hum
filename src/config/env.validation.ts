@@ -15,6 +15,7 @@ export const envValidationSchema = Joi.object({
     .uri({ scheme: ['https'] })
     .required(),
   SUPABASE_PUBLISHABLE_KEY: Joi.string().trim().min(1).required(),
+  SUPABASE_SECRET_KEY: Joi.string().trim().optional(),
   SUPABASE_JWT_ISSUER: Joi.string()
     .uri({ scheme: ['https'] })
     .required(),

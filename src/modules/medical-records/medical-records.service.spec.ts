@@ -39,10 +39,25 @@ describe('MedicalRecordsService', () => {
     };
     mockAudit = { record: jest.fn().mockResolvedValue({}) };
     validationService = new MedicalFileValidationService();
+    const mockSupabaseClient = {
+      storage: {
+        from: jest.fn().mockReturnValue({
+          createSignedUploadUrl: jest.fn().mockResolvedValue({
+            data: { signedUrl: 'https://supabase.local/upload' },
+            error: null,
+          }),
+          createSignedUrl: jest.fn().mockResolvedValue({
+            data: { signedUrl: 'https://supabase.local/download' },
+            error: null,
+          }),
+        }),
+      },
+    };
     service = new MedicalRecordsService(
       mockPrisma as unknown as PrismaService,
       mockAudit as unknown as AuditService,
       validationService,
+      mockSupabaseClient as any,
     );
   });
 

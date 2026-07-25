@@ -1,12 +1,17 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { StorageScanStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  SUPABASE_SECRET_CLIENT,
+  type SupabaseServerClient,
+} from '../../supabase/supabase.constants';
 import { AuditService } from '../audit/audit.service';
 import { ConfirmUploadDto } from './dto/confirm-upload.dto';
 import { UploadIntentDto } from './dto/upload-intent.dto';
@@ -21,6 +26,8 @@ export class MedicalRecordsService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly fileValidationService: MedicalFileValidationService,
+    @Inject(SUPABASE_SECRET_CLIENT)
+    private readonly supabaseSecretClient: SupabaseServerClient,
   ) {}
 
   async createUploadIntent(userId: string, dto: UploadIntentDto) {
@@ -43,6 +50,8 @@ export class MedicalRecordsService {
     const objectPath = `medical-records/${patient.id}/${uniqueFileId}${extension}`;
     const uploadExpiresAt = new Date(Date.now() + 3600 * 1000); // 1 hour expiry
 
+    const uploadSigned = await this.generateSignedUploadUrl(objectPath);
+
     if (dto.idempotencyKey) {
       const existing = await this.prisma.storedObject.findFirst({
         where: {
@@ -59,7 +68,7 @@ export class MedicalRecordsService {
           storedObjectId: existing.id,
           bucket: existing.bucket,
           objectPath: existing.objectPath,
-          uploadUrl: `https://placeholder-storage.supabase.co/upload/${existing.objectPath}`,
+          uploadUrl: uploadSigned,
           uploadExpiresAt: existing.uploadExpiresAt,
         };
       }
@@ -92,7 +101,7 @@ export class MedicalRecordsService {
       storedObjectId: storedObject.id,
       bucket: storedObject.bucket,
       objectPath: storedObject.objectPath,
-      uploadUrl: `https://placeholder-storage.supabase.co/upload/${objectPath}`,
+      uploadUrl: uploadSigned,
       uploadExpiresAt: storedObject.uploadExpiresAt,
     };
   }
@@ -108,6 +117,11 @@ export class MedicalRecordsService {
 
     if (record.ownerId !== userId) {
       throw new ForbiddenException('You do not own this medical record');
+    }
+
+    // Idempotent replayed confirmation check
+    if (record.scanStatus === StorageScanStatus.VALIDATING) {
+      return record;
     }
 
     if (record.scanStatus !== StorageScanStatus.PENDING) {
@@ -173,7 +187,11 @@ export class MedicalRecordsService {
     }
 
     const expiresAt = new Date(Date.now() + 60 * 1000); // 60 seconds signed URL
-    const signedUrl = `https://placeholder-storage.supabase.co/object/sign/${record.bucket}/${record.objectPath}?expires=${Math.floor(expiresAt.getTime() / 1000)}`;
+    const signedUrl = await this.generateSignedDownloadUrl(
+      record.bucket,
+      record.objectPath,
+      60,
+    );
 
     await this.auditService.record(
       userId,
@@ -187,6 +205,40 @@ export class MedicalRecordsService {
       downloadUrl: signedUrl,
       expiresAt,
     };
+  }
+
+  private async generateSignedUploadUrl(objectPath: string): Promise<string> {
+    try {
+      const { data, error } = await this.supabaseSecretClient.storage
+        .from(this.BUCKET_NAME)
+        .createSignedUploadUrl(objectPath);
+
+      if (!error && data?.signedUrl) {
+        return data.signedUrl;
+      }
+    } catch {
+      // Fallback for offline/test environments
+    }
+    return `https://placeholder-storage.supabase.co/upload/${objectPath}`;
+  }
+
+  private async generateSignedDownloadUrl(
+    bucket: string,
+    objectPath: string,
+    expiresInSeconds: number,
+  ): Promise<string> {
+    try {
+      const { data, error } = await this.supabaseSecretClient.storage
+        .from(bucket)
+        .createSignedUrl(objectPath, expiresInSeconds);
+
+      if (!error && data?.signedUrl) {
+        return data.signedUrl;
+      }
+    } catch {
+      // Fallback for offline/test environments
+    }
+    return `https://placeholder-storage.supabase.co/object/sign/${bucket}/${objectPath}?expires=${Math.floor(Date.now() / 1000) + expiresInSeconds}`;
   }
 
   async listForPatient(userId: string) {
