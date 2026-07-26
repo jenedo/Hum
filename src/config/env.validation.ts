@@ -28,4 +28,7 @@ export const envValidationSchema = Joi.object({
   JWT_ACCESS_EXPIRY: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRY: Joi.string().default('30d'),
   CORS_ORIGINS: Joi.string().required(),
+  FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string()
+    .optional()
+    .description('Firebase Admin SDK service account JSON string'),
 });
