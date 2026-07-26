@@ -9,20 +9,23 @@ datasource db {
 }
 
 model User {
-  id                    String               @id @default(uuid())
-  supabaseAuthUserId    String?              @unique
-  email                 String               @unique
-  mobile                String?              @unique
-  passwordHash          String?
-  role                  Role
-  isActive              Boolean              @default(true)
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  auditLogs             AuditLog[]
-  doctorProfile         DoctorProfile?
-  reviewedVerifications DoctorVerification[] @relation("VerificationReviewer")
-  patientProfile        PatientProfile?
-  refreshTokens         RefreshToken[]
+  id                     String                  @id @default(uuid())
+  supabaseAuthUserId     String?                 @unique
+  email                  String                  @unique
+  mobile                 String?                 @unique
+  passwordHash           String?
+  role                   Role
+  isActive               Boolean                 @default(true)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  auditLogs              AuditLog[]
+  doctorProfile          DoctorProfile?
+  reviewedVerifications  DoctorVerification[]    @relation("VerificationReviewer")
+  patientProfile         PatientProfile?
+  refreshTokens          RefreshToken[]
+  deviceRegistrations    DeviceRegistration[]
+  notifications          Notification[]
+  notificationPreference NotificationPreference?
 }
 
 model PatientProfile {
@@ -258,4 +261,137 @@ enum StoragePurpose {
   IMAGING
   PRESCRIPTION_ATTACHMENT
   OTHER
+}
+
+model DeviceRegistration {
+  id             String                 @id @default(uuid())
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installationId String
+  fcmToken       String                 @unique
+  platform       DevicePlatform
+  appMode        AppMode
+  appVersion     String
+  enabled        Boolean                @default(true)
+  lastSeenAt     DateTime               @default(now())
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  revokedAt      DateTime?
+  deliveries     NotificationDelivery[]
+
+  @@unique([userId, installationId, appMode])
+}
+
+model Notification {
+  id         String                 @id @default(uuid())
+  userId     String
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  titleKey   String
+  bodyKey    String
+  entityType String?
+  entityId   String?
+  route      String?
+  dataJson   String?
+  status     NotificationStatus     @default(QUEUED)
+  createdAt  DateTime               @default(now())
+  sentAt     DateTime?
+  deliveries NotificationDelivery[]
+}
+
+model NotificationDelivery {
+  id                   String             @id @default(uuid())
+  notificationId       String
+  notification         Notification       @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  deviceRegistrationId String
+  deviceRegistration   DeviceRegistration @relation(fields: [deviceRegistrationId], references: [id], onDelete: Cascade)
+  providerMessageId    String?
+  status               DeliveryStatus     @default(QUEUED)
+  attemptCount         Int                @default(0)
+  lastErrorCode        String?
+  nextAttemptAt        DateTime?
+  sentAt               DateTime?
+  createdAt            DateTime           @default(now())
+}
+
+model NotificationPreference {
+  userId              String   @id
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointmentUpdates  Boolean  @default(true)
+  reminders           Boolean  @default(true)
+  prescriptionUpdates Boolean  @default(true)
+  pharmacyUpdates     Boolean  @default(true)
+  paymentUpdates      Boolean  @default(true)
+  marketing           Boolean  @default(false)
+  quietHoursStart     Int?
+  quietHoursEnd       Int?
+  timezone            String   @default("Asia/Karachi")
+  updatedAt           DateTime @updatedAt
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid())
+  eventType     String
+  aggregateType String
+  aggregateId   String
+  payloadJson   String
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now())
+  processedAt   DateTime?
+  createdAt     DateTime     @default(now())
+}
+
+enum AppMode {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum NotificationType {
+  APPOINTMENT_BOOKED
+  APPOINTMENT_ACCEPTED
+  APPOINTMENT_REJECTED
+  APPOINTMENT_CANCELLED
+  CONSULTATION_REMINDER
+  CONSULTATION_STARTED
+  PRESCRIPTION_ISSUED
+  PRESCRIPTION_VOIDED
+  MEDICAL_RECORD_VALIDATED
+  MEDICAL_RECORD_REJECTED
+  PHARMACY_ORDER_PLACED
+  PHARMACY_ORDER_STATUS_CHANGED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  WALLET_CREDITED
+  WALLET_DEBITED
+  FOLLOW_UP_MESSAGE
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  PARTIAL
+  FAILED
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENDING
+  ACCEPTED_BY_PROVIDER
+  FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DEAD_LETTER
 }
