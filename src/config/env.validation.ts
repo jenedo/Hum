@@ -31,4 +31,7 @@ export const envValidationSchema = Joi.object({
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string()
     .optional()
     .description('Firebase Admin SDK service account JSON string'),
+  SANDBOX_WEBHOOK_SECRET: Joi.string()
+    .optional()
+    .description('Sandbox payment webhook secret'),
 });
