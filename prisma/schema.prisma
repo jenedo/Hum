@@ -29,17 +29,20 @@ model User {
 }
 
 model PatientProfile {
-  id            String         @id @default(uuid())
-  userId        String         @unique
-  fullName      String
-  dateOfBirth   DateTime?
-  gender        String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  appointments  Appointment[]
-  prescriptions Prescription[]
-  storedObjects StoredObject[]
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String            @id @default(uuid())
+  userId            String            @unique
+  fullName          String
+  dateOfBirth       DateTime?
+  gender            String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  appointments      Appointment[]
+  prescriptions     Prescription[]
+  storedObjects     StoredObject[]
+  cart              Cart[]
+  deliveryAddresses DeliveryAddress[]
+  pharmacyOrders    PharmacyOrder[]
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model DoctorProfile {
@@ -150,11 +153,12 @@ model Prescription {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
-  appointment    Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
-  doctorProfile  DoctorProfile  @relation(fields: [doctorProfileId], references: [id], onDelete: Restrict)
-  patientProfile PatientProfile @relation(fields: [patientProfileId], references: [id], onDelete: Restrict)
-  supersedes     Prescription?  @relation("PrescriptionRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
-  revisions      Prescription[] @relation("PrescriptionRevisions")
+  appointment    Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  doctorProfile  DoctorProfile   @relation(fields: [doctorProfileId], references: [id], onDelete: Restrict)
+  patientProfile PatientProfile  @relation(fields: [patientProfileId], references: [id], onDelete: Restrict)
+  supersedes     Prescription?   @relation("PrescriptionRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
+  revisions      Prescription[]  @relation("PrescriptionRevisions")
+  pharmacyOrders PharmacyOrder[]
 
   @@unique([appointmentId, version])
   @@index([patientProfileId])
@@ -394,4 +398,183 @@ enum OutboxStatus {
   PROCESSED
   FAILED
   DEAD_LETTER
+}
+
+model PharmacyCategory {
+  id          String            @id @default(uuid())
+  name        String            @unique
+  slug        String            @unique
+  description String?
+  imageUrl    String?
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  products    PharmacyProduct[]
+}
+
+model PharmacyProduct {
+  id                   String                 @id @default(uuid())
+  categoryId           String
+  category             PharmacyCategory       @relation(fields: [categoryId], references: [id])
+  sku                  String                 @unique
+  genericName          String
+  brandName            String
+  strength             String?
+  dosageForm           String
+  manufacturer         String?
+  packSize             Int                    @default(1)
+  prescriptionRequired Boolean                @default(false)
+  unitPriceMinor       Int
+  currency             String                 @default("PKR")
+  description          String?
+  imageUrl             String?
+  searchText           String
+  isActive             Boolean                @default(true)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  inventory            ProductInventory?
+  cartItems            CartItem[]
+  orderItems           PharmacyOrderItem[]
+  reservations         InventoryReservation[]
+}
+
+model ProductInventory {
+  id               String          @id @default(uuid())
+  productId        String          @unique
+  product          PharmacyProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantityOnHand   Int             @default(0)
+  quantityReserved Int             @default(0)
+  reorderLevel     Int             @default(10)
+  updatedAt        DateTime        @updatedAt
+}
+
+model Cart {
+  id        String         @id @default(uuid())
+  patientId String
+  patient   PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  currency  String         @default("PKR")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  items     CartItem[]
+
+  @@unique([patientId, currency])
+}
+
+model CartItem {
+  id        String          @id @default(uuid())
+  cartId    String
+  cart      Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   PharmacyProduct @relation(fields: [productId], references: [id])
+  quantity  Int
+  addedAt   DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([cartId, productId])
+}
+
+model DeliveryAddress {
+  id            String          @id @default(uuid())
+  patientId     String
+  patient       PatientProfile  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  label         String
+  recipientName String
+  phone         String
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  province      String
+  postalCode    String?
+  isDefault     Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  orders        PharmacyOrder[]
+}
+
+model PharmacyOrder {
+  id                String                 @id @default(uuid())
+  orderNumber       String                 @unique
+  patientId         String
+  patient           PatientProfile         @relation(fields: [patientId], references: [id])
+  deliveryAddressId String
+  deliveryAddress   DeliveryAddress        @relation(fields: [deliveryAddressId], references: [id])
+  prescriptionId    String?
+  prescription      Prescription?          @relation(fields: [prescriptionId], references: [id])
+  status            PharmacyOrderStatus    @default(PENDING_PAYMENT)
+  subtotalMinor     Int
+  deliveryFeeMinor  Int                    @default(0)
+  discountMinor     Int                    @default(0)
+  totalMinor        Int
+  currency          String                 @default("PKR")
+  idempotencyKey    String                 @unique
+  recipientNameSnap String
+  addressSnap       String
+  citySnap          String
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  items             PharmacyOrderItem[]
+  statusHistory     OrderStatusHistory[]
+  reservations      InventoryReservation[]
+}
+
+model PharmacyOrderItem {
+  id              String          @id @default(uuid())
+  orderId         String
+  order           PharmacyOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         PharmacyProduct @relation(fields: [productId], references: [id])
+  skuSnap         String
+  productNameSnap String
+  unitPriceSnap   Int
+  quantity        Int
+  lineTotalMinor  Int
+  createdAt       DateTime        @default(now())
+}
+
+model InventoryReservation {
+  id         String            @id @default(uuid())
+  orderId    String
+  order      PharmacyOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    PharmacyProduct   @relation(fields: [productId], references: [id])
+  quantity   Int
+  status     ReservationStatus @default(HELD)
+  expiresAt  DateTime
+  releasedAt DateTime?
+  consumedAt DateTime?
+  createdAt  DateTime          @default(now())
+}
+
+model OrderStatusHistory {
+  id         String               @id @default(uuid())
+  orderId    String
+  order      PharmacyOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus PharmacyOrderStatus?
+  toStatus   PharmacyOrderStatus
+  changedBy  String?
+  note       String?
+  createdAt  DateTime             @default(now())
+}
+
+enum PharmacyOrderStatus {
+  PENDING_PAYMENT
+  PAYMENT_PROCESSING
+  PAID
+  CONFIRMED
+  PREPARING
+  READY_FOR_DISPATCH
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+  PAYMENT_FAILED
+}
+
+enum ReservationStatus {
+  HELD
+  CONSUMED
+  RELEASED
+  EXPIRED
 }
