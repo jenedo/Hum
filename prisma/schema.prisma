@@ -26,6 +26,9 @@ model User {
   deviceRegistrations    DeviceRegistration[]
   notifications          Notification[]
   notificationPreference NotificationPreference?
+  wallet                 Wallet?
+  paymentAttempts        PaymentAttempt[]
+  payouts                Payout[]
 }
 
 model PatientProfile {
@@ -592,6 +595,7 @@ model PharmacyOrder {
   items              PharmacyOrderItem[]
   statusHistory      OrderStatusHistory[]
   reservations       InventoryReservation[]
+  paymentAttempts    PaymentAttempt[]
 
   @@index([patientId, createdAt])
   @@index([patientId, status])
@@ -671,4 +675,136 @@ enum ReservationStatus {
   CONSUMED
   RELEASED
   EXPIRED
+}
+
+enum LedgerEntryType {
+  CREDIT
+  DEBIT
+}
+
+enum PaymentProvider {
+  SANDBOX
+  JAZZCASH
+  EASYPAISA
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  REQUIRES_ACTION
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+model Wallet {
+  id            String              @id @default(uuid())
+  userId        String              @unique
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency      String              @default("PKR")
+  balanceMinor  Int                 @default(0)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  ledgerEntries WalletLedgerEntry[]
+}
+
+model WalletLedgerEntry {
+  id            String          @id @default(uuid())
+  walletId      String
+  wallet        Wallet          @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  type          LedgerEntryType
+  amountMinor   Int
+  currency      String          @default("PKR")
+  balanceAfter  Int
+  description   String
+  referenceType String?
+  referenceId   String?
+  createdAt     DateTime        @default(now())
+
+  @@index([walletId, createdAt])
+}
+
+model PaymentAttempt {
+  id               String                @id @default(uuid())
+  orderId          String?
+  pharmacyOrder    PharmacyOrder?        @relation(fields: [orderId], references: [id])
+  userId           String
+  user             User                  @relation(fields: [userId], references: [id])
+  provider         PaymentProvider
+  status           PaymentStatus         @default(CREATED)
+  amountMinor      Int
+  currency         String                @default("PKR")
+  providerRef      String?
+  providerResponse String?
+  idempotencyKey   String                @unique
+  failureReason    String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  webhookEvents    PaymentWebhookEvent[]
+  refunds          Refund[]
+
+  @@index([userId, status])
+  @@index([orderId])
+}
+
+model PaymentWebhookEvent {
+  id               String          @id @default(uuid())
+  paymentAttemptId String
+  paymentAttempt   PaymentAttempt  @relation(fields: [paymentAttemptId], references: [id])
+  provider         PaymentProvider
+  eventId          String          @unique
+  payloadJson      String
+  signatureValid   Boolean
+  processed        Boolean         @default(false)
+  processedAt      DateTime?
+  createdAt        DateTime        @default(now())
+}
+
+model Refund {
+  id               String         @id @default(uuid())
+  paymentAttemptId String
+  paymentAttempt   PaymentAttempt @relation(fields: [paymentAttemptId], references: [id])
+  amountMinor      Int
+  currency         String         @default("PKR")
+  reason           String
+  status           RefundStatus   @default(PENDING)
+  providerRef      String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model Payout {
+  id           String       @id @default(uuid())
+  doctorUserId String
+  doctor       User         @relation(fields: [doctorUserId], references: [id])
+  amountMinor  Int
+  currency     String       @default("PKR")
+  status       PayoutStatus @default(PENDING)
+  periodStart  DateTime
+  periodEnd    DateTime
+  providerRef  String?
+  processedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([doctorUserId, status])
 }
