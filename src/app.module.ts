@@ -13,6 +13,7 @@ import { DoctorVerificationModule } from './modules/doctor-verification/doctor-v
 import { DoctorsModule } from './modules/doctors/doctors.module';
 import { MedicalRecordsModule } from './modules/medical-records/medical-records.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PharmacyModule } from './modules/pharmacy/pharmacy.module';
 import { PrescriptionsModule } from './modules/prescriptions/prescriptions.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesGuard } from './security/roles.guard';
@@ -86,6 +87,7 @@ import { SupabaseModule } from './supabase/supabase.module';
     PrescriptionsModule,
     MedicalRecordsModule,
     NotificationsModule,
+    PharmacyModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
