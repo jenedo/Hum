@@ -3,7 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { AppointmentStatus, Prisma } from '@prisma/client';
+import { AppointmentStatus, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PrescriptionsService } from './prescriptions.service';
@@ -25,10 +25,15 @@ type MockAudit = {
   record: jest.Mock;
 };
 
+type MockOutbox = {
+  createEvent: jest.Mock;
+};
+
 describe('PrescriptionsService', () => {
   let service: PrescriptionsService;
   let mockPrisma: MockPrisma;
   let mockAudit: MockAudit;
+  let mockOutbox: MockOutbox;
 
   beforeEach(() => {
     mockPrisma = {
@@ -48,13 +53,16 @@ describe('PrescriptionsService', () => {
         ),
     };
     mockAudit = { record: jest.fn().mockResolvedValue({}) };
+    mockOutbox = { createEvent: jest.fn().mockResolvedValue(undefined) };
+
     service = new PrescriptionsService(
       mockPrisma as unknown as PrismaService,
       mockAudit as unknown as AuditService,
+      mockOutbox,
     );
   });
 
-  it('creates prescription for doctor owning a completed appointment', async () => {
+  it('creates prescription for doctor owning a completed appointment and emits outbox event', async () => {
     mockPrisma.doctorProfile.findUnique.mockResolvedValue({
       id: 'doc-prof-1',
       userId: 'user-doc',
@@ -103,6 +111,16 @@ describe('PrescriptionsService', () => {
     });
 
     expect(result.id).toBe('rx-1');
+    expect(mockPrisma.prescription.create).toHaveBeenCalled();
+    expect(mockOutbox.createEvent).toHaveBeenCalledWith(
+      mockPrisma,
+      expect.objectContaining({
+        eventType: NotificationType.PRESCRIPTION_ISSUED,
+        aggregateType: 'Prescription',
+        aggregateId: 'rx-1',
+        userId: 'user-pat',
+      }),
+    );
     expect(mockAudit.record).toHaveBeenCalledWith(
       'user-doc',
       'PRESCRIPTION_ISSUED',

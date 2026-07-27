@@ -5,9 +5,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AppointmentStatus, Prisma, Role } from '@prisma/client';
+import {
+  AppointmentStatus,
+  NotificationType,
+  Prisma,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { OutboxEventService } from '../notifications/outbox-event.service';
 import { assertTransition } from './appointment-state';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { RejectAppointmentDto } from './dto/reject-appointment.dto';
@@ -17,6 +23,7 @@ export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly outboxEventService: OutboxEventService,
   ) {}
 
   async book(userId: string, dto: CreateAppointmentDto) {
@@ -83,7 +90,7 @@ export class AppointmentsService {
           slotStart.getTime() + matchingWindow.slotDurationMinutes * 60_000,
         );
 
-        return tx.appointment.create({
+        const appointment = await tx.appointment.create({
           data: {
             patientProfileId: patient.id,
             doctorProfileId: doctor.id,
@@ -93,6 +100,32 @@ export class AppointmentsService {
             status: AppointmentStatus.PENDING,
           },
         });
+
+        await this.outboxEventService.createEvent(tx, {
+          eventType: NotificationType.APPOINTMENT_BOOKED,
+          aggregateType: 'Appointment',
+          aggregateId: appointment.id,
+          userId: userId,
+          titleKey: 'notification.appointment.booked.title',
+          bodyKey: 'notification.appointment.booked.body',
+          entityType: 'Appointment',
+          entityId: appointment.id,
+          route: '/appointments/' + appointment.id,
+        });
+
+        await this.outboxEventService.createEvent(tx, {
+          eventType: NotificationType.APPOINTMENT_BOOKED,
+          aggregateType: 'Appointment',
+          aggregateId: appointment.id,
+          userId: doctor.userId,
+          titleKey: 'notification.appointment.new_request.title',
+          bodyKey: 'notification.appointment.new_request.body',
+          entityType: 'Appointment',
+          entityId: appointment.id,
+          route: '/doctor/appointments/' + appointment.id,
+        });
+
+        return appointment;
       });
     } catch (error) {
       if (
@@ -136,45 +169,67 @@ export class AppointmentsService {
   }
 
   async cancel(userId: string, role: Role, appointmentId: string) {
-    const appointment = await this.prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: {
-        patientProfile: { select: { userId: true } },
-        doctorProfile: { select: { userId: true } },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const appointment = await tx.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          patientProfile: { select: { userId: true } },
+          doctorProfile: { select: { userId: true } },
+        },
+      });
+
+      if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+      }
+
+      const isPatientOwner =
+        role === Role.PATIENT && appointment.patientProfile.userId === userId;
+      const isDoctorOwner =
+        role === Role.DOCTOR && appointment.doctorProfile.userId === userId;
+
+      if (!isPatientOwner && !isDoctorOwner) {
+        throw new ForbiddenException('You do not own this appointment');
+      }
+
+      assertTransition(appointment.status, AppointmentStatus.CANCELLED, {
+        slotStart: appointment.slotStart,
+      });
+
+      const updated = await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { status: AppointmentStatus.CANCELLED },
+      });
+
+      await this.auditService.record(
+        userId,
+        'APPOINTMENT_CANCELLED',
+        'Appointment',
+        appointmentId,
+        { cancelledByRole: role },
+      );
+
+      const targetUserId = isPatientOwner
+        ? appointment.doctorProfile.userId
+        : appointment.patientProfile.userId;
+
+      const targetRoute = isPatientOwner
+        ? '/doctor/appointments/' + appointmentId
+        : '/appointments/' + appointmentId;
+
+      await this.outboxEventService.createEvent(tx, {
+        eventType: NotificationType.APPOINTMENT_CANCELLED,
+        aggregateType: 'Appointment',
+        aggregateId: appointmentId,
+        userId: targetUserId,
+        titleKey: 'notification.appointment.cancelled.title',
+        bodyKey: 'notification.appointment.cancelled.body',
+        entityType: 'Appointment',
+        entityId: appointmentId,
+        route: targetRoute,
+      });
+
+      return updated;
     });
-
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
-
-    const isPatientOwner =
-      role === Role.PATIENT && appointment.patientProfile.userId === userId;
-    const isDoctorOwner =
-      role === Role.DOCTOR && appointment.doctorProfile.userId === userId;
-
-    if (!isPatientOwner && !isDoctorOwner) {
-      throw new ForbiddenException('You do not own this appointment');
-    }
-
-    assertTransition(appointment.status, AppointmentStatus.CANCELLED, {
-      slotStart: appointment.slotStart,
-    });
-
-    const updated = await this.prisma.appointment.update({
-      where: { id: appointmentId },
-      data: { status: AppointmentStatus.CANCELLED },
-    });
-
-    await this.auditService.record(
-      userId,
-      'APPOINTMENT_CANCELLED',
-      'Appointment',
-      appointmentId,
-      { cancelledByRole: role },
-    );
-
-    return updated;
   }
 
   async getById(userId: string, role: Role, appointmentId: string) {
@@ -211,33 +266,66 @@ export class AppointmentsService {
     appointmentId: string,
     to: AppointmentStatus,
   ) {
-    const doctor = await this.prisma.doctorProfile.findUnique({
-      where: { userId },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const doctor = await tx.doctorProfile.findUnique({
+        where: { userId },
+      });
 
-    if (!doctor) {
-      throw new NotFoundException('Doctor profile not found');
-    }
+      if (!doctor) {
+        throw new NotFoundException('Doctor profile not found');
+      }
 
-    const appointment = await this.prisma.appointment.findUnique({
-      where: { id: appointmentId },
-    });
+      const appointment = await tx.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          patientProfile: { select: { userId: true } },
+        },
+      });
 
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
+      if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+      }
 
-    if (appointment.doctorProfileId !== doctor.id) {
-      throw new ForbiddenException('You do not own this appointment');
-    }
+      if (appointment.doctorProfileId !== doctor.id) {
+        throw new ForbiddenException('You do not own this appointment');
+      }
 
-    assertTransition(appointment.status, to, {
-      slotStart: appointment.slotStart,
-    });
+      assertTransition(appointment.status, to, {
+        slotStart: appointment.slotStart,
+      });
 
-    return this.prisma.appointment.update({
-      where: { id: appointmentId },
-      data: { status: to },
+      const updated = await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { status: to },
+      });
+
+      if (to === AppointmentStatus.ACCEPTED) {
+        await this.outboxEventService.createEvent(tx, {
+          eventType: NotificationType.APPOINTMENT_ACCEPTED,
+          aggregateType: 'Appointment',
+          aggregateId: appointmentId,
+          userId: appointment.patientProfile.userId,
+          titleKey: 'notification.appointment.accepted.title',
+          bodyKey: 'notification.appointment.accepted.body',
+          entityType: 'Appointment',
+          entityId: appointmentId,
+          route: '/appointments/' + appointmentId,
+        });
+      } else if (to === AppointmentStatus.REJECTED) {
+        await this.outboxEventService.createEvent(tx, {
+          eventType: NotificationType.APPOINTMENT_REJECTED,
+          aggregateType: 'Appointment',
+          aggregateId: appointmentId,
+          userId: appointment.patientProfile.userId,
+          titleKey: 'notification.appointment.rejected.title',
+          bodyKey: 'notification.appointment.rejected.body',
+          entityType: 'Appointment',
+          entityId: appointmentId,
+          route: '/appointments/' + appointmentId,
+        });
+      }
+
+      return updated;
     });
   }
 }

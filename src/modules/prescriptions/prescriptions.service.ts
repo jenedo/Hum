@@ -5,9 +5,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AppointmentStatus, Prisma, Role } from '@prisma/client';
+import {
+  AppointmentStatus,
+  NotificationType,
+  Prisma,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { OutboxEventService } from '../notifications/outbox-event.service';
 import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 
 @Injectable()
@@ -15,6 +21,7 @@ export class PrescriptionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly outboxEventService: OutboxEventService,
   ) {}
 
   async createForDoctor(userId: string, dto: CreatePrescriptionDto) {
@@ -65,7 +72,7 @@ export class PrescriptionsService {
 
     try {
       const prescription = await this.prisma.$transaction(async (tx) => {
-        return tx.prescription.create({
+        const created = await tx.prescription.create({
           data: {
             appointmentId: appointment.id,
             doctorProfileId: doctor.id,
@@ -93,6 +100,20 @@ export class PrescriptionsService {
             patientProfile: { select: { id: true, fullName: true } },
           },
         });
+
+        await this.outboxEventService.createEvent(tx, {
+          eventType: NotificationType.PRESCRIPTION_ISSUED,
+          aggregateType: 'Prescription',
+          aggregateId: created.id,
+          userId: appointment.patientProfile.userId,
+          titleKey: 'notification.prescription.issued.title',
+          bodyKey: 'notification.prescription.issued.body',
+          entityType: 'Prescription',
+          entityId: created.id,
+          route: '/prescriptions/' + created.id,
+        });
+
+        return created;
       });
 
       await this.auditService.record(
