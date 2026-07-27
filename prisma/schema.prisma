@@ -109,7 +109,7 @@ model DoctorAvailability {
   dayOfWeek           Int
   startMinutes        Int
   endMinutes          Int
-  slotDurationMinutes Int
+  slotDurationMinutes Int           @default(30)
   isActive            Boolean       @default(true)
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
@@ -163,116 +163,46 @@ model Prescription {
   @@unique([appointmentId, version])
   @@index([patientProfileId])
   @@index([doctorProfileId])
-  @@index([appointmentId])
 }
 
 model StoredObject {
-  id              String            @id @default(uuid())
-  ownerId         String
-  patientId       String?
-  bucket          String
-  objectPath      String
-  mimeType        String
-  sizeBytes       Int
-  purpose         StoragePurpose    @default(MEDICAL_RECORD)
-  scanStatus      StorageScanStatus @default(PENDING)
-  isAvailable     Boolean           @default(false)
-  uploadExpiresAt DateTime
-  confirmedAt     DateTime?
-  validatedAt     DateTime?
-  rejectionReason String?
-  sha256          String?
-  createdAt       DateTime          @default(now())
-  deletedAt       DateTime?
+  id               String            @id @default(uuid())
+  patientProfileId String
+  bucketName       String
+  objectKey        String
+  fileName         String
+  fileSizeBytes    Int
+  mimeType         String
+  sha256Hash       String
+  scanStatus       StorageScanStatus @default(PENDING)
+  scanResultAt     DateTime?
+  purpose          StoragePurpose
+  createdAt        DateTime          @default(now())
+  patientProfile   PatientProfile    @relation(fields: [patientProfileId], references: [id], onDelete: Cascade)
 
-  patientProfile PatientProfile? @relation(fields: [patientId], references: [id], onDelete: Restrict)
-
-  @@unique([bucket, objectPath])
-  @@index([ownerId])
-  @@index([patientId])
+  @@index([patientProfileId])
+  @@index([purpose, scanStatus])
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  actorUserId String
-  action      String
-  targetType  String
-  targetId    String
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  actorUser   User     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid())
+  actorUserId  String
+  action       String
+  resourceType String
+  resourceId   String
+  metadataJson String?
+  createdAt    DateTime @default(now())
+  actorUser    User     @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
 
-  @@index([actorUserId])
-  @@index([targetType, targetId])
-}
-
-enum Role {
-  PATIENT
-  DOCTOR
-  ADMIN
-  SUPER_ADMIN
-}
-
-enum VerificationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum DocumentType {
-  PMDC_CERT
-  CNIC
-  DEGREE
-}
-
-enum AppointmentStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-  RESCHEDULE_PROPOSED
-  CONFIRMED
-  WAITING
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-  NO_SHOW
-}
-
-enum ConsultationType {
-  VIDEO
-  AUDIO
-  CHAT
-}
-
-enum PrescriptionStatus {
-  ISSUED
-  SUPERSEDED
-  VOIDED
-}
-
-enum StorageScanStatus {
-  PENDING
-  VALIDATING
-  PASSED
-  REJECTED
-  QUARANTINED
-  ERROR
-}
-
-enum StoragePurpose {
-  MEDICAL_RECORD
-  LAB_RESULT
-  IMAGING
-  PRESCRIPTION_ATTACHMENT
-  OTHER
+  @@index([actorUserId, createdAt])
+  @@index([resourceType, resourceId])
 }
 
 model DeviceRegistration {
   id             String                 @id @default(uuid())
   userId         String
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   installationId String
-  fcmToken       String                 @unique
+  fcmToken       String
   platform       DevicePlatform
   appMode        AppMode
   appVersion     String
@@ -282,14 +212,16 @@ model DeviceRegistration {
   updatedAt      DateTime               @updatedAt
   revokedAt      DateTime?
   deliveries     NotificationDelivery[]
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, installationId, appMode])
+  @@unique([fcmToken])
+  @@index([userId, enabled])
 }
 
 model Notification {
   id         String                 @id @default(uuid())
   userId     String
-  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   type       NotificationType
   titleKey   String
   bodyKey    String
@@ -301,26 +233,28 @@ model Notification {
   createdAt  DateTime               @default(now())
   sentAt     DateTime?
   deliveries NotificationDelivery[]
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@index([entityType, entityId])
 }
 
 model NotificationDelivery {
   id                   String             @id @default(uuid())
   notificationId       String
-  notification         Notification       @relation(fields: [notificationId], references: [id], onDelete: Cascade)
   deviceRegistrationId String
-  deviceRegistration   DeviceRegistration @relation(fields: [deviceRegistrationId], references: [id], onDelete: Cascade)
-  providerMessageId    String?
   status               DeliveryStatus     @default(QUEUED)
-  attemptCount         Int                @default(0)
-  lastErrorCode        String?
-  nextAttemptAt        DateTime?
   sentAt               DateTime?
-  createdAt            DateTime           @default(now())
+  errorMessage         String?
+  deviceRegistration   DeviceRegistration @relation(fields: [deviceRegistrationId], references: [id], onDelete: Cascade)
+  notification         Notification       @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([deviceRegistrationId])
 }
 
 model NotificationPreference {
   userId              String   @id
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   appointmentUpdates  Boolean  @default(true)
   reminders           Boolean  @default(true)
   prescriptionUpdates Boolean  @default(true)
@@ -331,6 +265,7 @@ model NotificationPreference {
   quietHoursEnd       Int?
   timezone            String   @default("Asia/Karachi")
   updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model OutboxEvent {
@@ -344,12 +279,70 @@ model OutboxEvent {
   availableAt   DateTime     @default(now())
   processedAt   DateTime?
   createdAt     DateTime     @default(now())
+
+  @@index([status, availableAt, attempts])
+  @@index([aggregateType, aggregateId])
+}
+
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DocumentType {
+  PMDC_CERTIFICATE
+  CNIC_FRONT
+  CNIC_BACK
+  MBBS_DEGREE
+  EXPERIENCE_LETTER
+}
+
+enum AppointmentStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  RESCHEDULE_PROPOSED
+  CONFIRMED
+  CANCELLED
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  NO_SHOW
+}
+
+enum ConsultationType {
+  VIDEO
+  AUDIO
+  CHAT
+}
+
+enum PrescriptionStatus {
+  ISSUED
+  VOIDED
+}
+
+enum StorageScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  FAILED
+}
+
+enum StoragePurpose {
+  DOCTOR_VERIFICATION_DOCUMENT
+  MEDICAL_RECORD
 }
 
 enum AppMode {
   PATIENT
   DOCTOR
-  ADMIN
 }
 
 enum DevicePlatform {
@@ -400,6 +393,27 @@ enum OutboxStatus {
   DEAD_LETTER
 }
 
+enum InventoryBatchStatus {
+  ACTIVE
+  DEPLETED
+  EXPIRED
+  QUARANTINED
+  RECALLED
+}
+
+enum InventoryMovementType {
+  RECEIPT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  RESERVATION
+  RESERVATION_RELEASE
+  SALE
+  RETURN
+  EXPIRED
+  DAMAGED
+  RECALLED
+}
+
 model PharmacyCategory {
   id          String            @id @default(uuid())
   name        String            @unique
@@ -437,6 +451,56 @@ model PharmacyProduct {
   cartItems            CartItem[]
   orderItems           PharmacyOrderItem[]
   reservations         InventoryReservation[]
+  inventoryBatches     InventoryBatch[]
+  inventoryMovements   InventoryMovement[]
+
+  @@index([categoryId, isActive])
+  @@index([isActive, brandName])
+  @@index([isActive, genericName])
+}
+
+model InventoryBatch {
+  id                 String               @id @default(uuid())
+  productId          String
+  product            PharmacyProduct      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batchNumber        String
+  expiryDate         DateTime
+  quantityOnHand     Int                  @default(0)
+  quantityReserved   Int                  @default(0)
+  purchasePriceMinor Int?
+  currency           String               @default("PKR")
+  supplierReference  String?
+  status             InventoryBatchStatus @default(ACTIVE)
+  receivedAt         DateTime             @default(now())
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  movements    InventoryMovement[]
+  reservations InventoryReservation[]
+
+  @@unique([productId, batchNumber])
+  @@index([productId, status, expiryDate])
+  @@index([expiryDate, status])
+}
+
+model InventoryMovement {
+  id            String                @id @default(uuid())
+  productId     String
+  product       PharmacyProduct       @relation(fields: [productId], references: [id])
+  batchId       String?
+  batch         InventoryBatch?       @relation(fields: [batchId], references: [id])
+  type          InventoryMovementType
+  quantityDelta Int
+  quantityAfter Int
+  referenceType String?
+  referenceId   String?
+  reason        String?
+  actorUserId   String?
+  createdAt     DateTime              @default(now())
+
+  @@index([productId, createdAt])
+  @@index([batchId, createdAt])
+  @@index([referenceType, referenceId])
 }
 
 model ProductInventory {
@@ -447,6 +511,9 @@ model ProductInventory {
   quantityReserved Int             @default(0)
   reorderLevel     Int             @default(10)
   updatedAt        DateTime        @updatedAt
+
+  @@index([quantityOnHand])
+  @@index([quantityReserved])
 }
 
 model Cart {
@@ -459,6 +526,7 @@ model Cart {
   items     CartItem[]
 
   @@unique([patientId, currency])
+  @@index([patientId, currency])
 }
 
 model CartItem {
@@ -487,49 +555,66 @@ model DeliveryAddress {
   province      String
   postalCode    String?
   isDefault     Boolean         @default(false)
+  deletedAt     DateTime?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   orders        PharmacyOrder[]
+
+  @@index([patientId, deletedAt])
 }
 
 model PharmacyOrder {
-  id                String                 @id @default(uuid())
-  orderNumber       String                 @unique
-  patientId         String
-  patient           PatientProfile         @relation(fields: [patientId], references: [id])
-  deliveryAddressId String
-  deliveryAddress   DeliveryAddress        @relation(fields: [deliveryAddressId], references: [id])
-  prescriptionId    String?
-  prescription      Prescription?          @relation(fields: [prescriptionId], references: [id])
-  status            PharmacyOrderStatus    @default(PENDING_PAYMENT)
-  subtotalMinor     Int
-  deliveryFeeMinor  Int                    @default(0)
-  discountMinor     Int                    @default(0)
-  totalMinor        Int
-  currency          String                 @default("PKR")
-  idempotencyKey    String                 @unique
-  recipientNameSnap String
-  addressSnap       String
-  citySnap          String
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
-  items             PharmacyOrderItem[]
-  statusHistory     OrderStatusHistory[]
-  reservations      InventoryReservation[]
+  id                 String                 @id @default(uuid())
+  orderNumber        String                 @unique
+  patientId          String
+  patient            PatientProfile         @relation(fields: [patientId], references: [id])
+  deliveryAddressId  String
+  deliveryAddress    DeliveryAddress        @relation(fields: [deliveryAddressId], references: [id])
+  prescriptionId     String?
+  prescription       Prescription?          @relation(fields: [prescriptionId], references: [id])
+  status             PharmacyOrderStatus    @default(PENDING_PAYMENT)
+  subtotalMinor      Int
+  deliveryFeeMinor   Int                    @default(0)
+  discountMinor      Int                    @default(0)
+  totalMinor         Int
+  currency           String                 @default("PKR")
+  idempotencyKey     String                 @unique
+  recipientNameSnap  String
+  recipientPhoneSnap String
+  addressSnap        String
+  addressLine1Snap   String
+  addressLine2Snap   String?
+  citySnap           String
+  provinceSnap       String
+  postalCodeSnap     String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  items              PharmacyOrderItem[]
+  statusHistory      OrderStatusHistory[]
+  reservations       InventoryReservation[]
+
+  @@index([patientId, createdAt])
+  @@index([patientId, status])
+  @@index([status, createdAt])
 }
 
 model PharmacyOrderItem {
-  id              String          @id @default(uuid())
-  orderId         String
-  order           PharmacyOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId       String
-  product         PharmacyProduct @relation(fields: [productId], references: [id])
-  skuSnap         String
-  productNameSnap String
-  unitPriceSnap   Int
-  quantity        Int
-  lineTotalMinor  Int
-  createdAt       DateTime        @default(now())
+  id                       String          @id @default(uuid())
+  orderId                  String
+  order                    PharmacyOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId                String
+  product                  PharmacyProduct @relation(fields: [productId], references: [id])
+  skuSnap                  String
+  productNameSnap          String
+  brandNameSnap            String
+  genericNameSnap          String
+  strengthSnap             String?
+  dosageFormSnap           String
+  prescriptionRequiredSnap Boolean
+  unitPriceSnap            Int
+  quantity                 Int
+  lineTotalMinor           Int
+  createdAt                DateTime        @default(now())
 }
 
 model InventoryReservation {
@@ -538,12 +623,19 @@ model InventoryReservation {
   order      PharmacyOrder     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId  String
   product    PharmacyProduct   @relation(fields: [productId], references: [id])
+  batchId    String?
+  batch      InventoryBatch?   @relation(fields: [batchId], references: [id])
   quantity   Int
   status     ReservationStatus @default(HELD)
   expiresAt  DateTime
   releasedAt DateTime?
   consumedAt DateTime?
   createdAt  DateTime          @default(now())
+
+  @@index([status, expiresAt])
+  @@index([orderId])
+  @@index([productId])
+  @@index([batchId])
 }
 
 model OrderStatusHistory {
@@ -555,6 +647,8 @@ model OrderStatusHistory {
   changedBy  String?
   note       String?
   createdAt  DateTime             @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 enum PharmacyOrderStatus {
