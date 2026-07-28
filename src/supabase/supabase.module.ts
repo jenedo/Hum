@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { createClient } from '@supabase/supabase-js';
 import { SupabaseAuthGuard } from './supabase-auth.guard';
@@ -10,6 +10,7 @@ import {
   type SupabaseServerClient,
 } from './supabase.constants';
 
+@Global()
 @Module({
   imports: [ConfigModule],
   providers: [

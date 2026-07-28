@@ -14,6 +14,13 @@ import { RejectAppointmentDto } from './dto/reject-appointment.dto';
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
+  @Roles(Role.PATIENT, Role.DOCTOR)
+  @Get()
+  @ApiOperation({ summary: 'Get appointments for current user' })
+  getUserAppointments(@CurrentUser() user: AuthUser) {
+    return this.appointmentsService.getUserAppointments(user.userId, user.role);
+  }
+
   @Roles(Role.PATIENT)
   @Post()
   @ApiOperation({ summary: 'Book an appointment slot (patient only)' })

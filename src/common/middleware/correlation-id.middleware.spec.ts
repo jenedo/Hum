@@ -16,7 +16,10 @@ describe('CorrelationIdMiddleware', () => {
 
     expect(req.correlationId).toBeDefined();
     expect(typeof req.correlationId).toBe('string');
-    expect(res.setHeader).toHaveBeenCalledWith('x-request-id', req.correlationId);
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'x-request-id',
+      req.correlationId,
+    );
     expect(next).toHaveBeenCalled();
   });
 

@@ -32,10 +32,7 @@ describe('AuthService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AuthService,
-        { provide: PrismaService, useValue: prisma },
-      ],
+      providers: [AuthService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get(AuthService);

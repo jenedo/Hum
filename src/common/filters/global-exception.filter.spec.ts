@@ -24,7 +24,9 @@ describe('GlobalExceptionFilter', () => {
       }),
     };
 
-    const internalError = new Error('PrismaClientKnownRequestError: DB failure secret table details');
+    const internalError = new Error(
+      'PrismaClientKnownRequestError: DB failure secret table details',
+    );
 
     filter.catch(internalError, host);
 
@@ -56,7 +58,10 @@ describe('GlobalExceptionFilter', () => {
       }),
     };
 
-    const badRequest = new HttpException('Invalid email format', HttpStatus.BAD_REQUEST);
+    const badRequest = new HttpException(
+      'Invalid email format',
+      HttpStatus.BAD_REQUEST,
+    );
 
     filter.catch(badRequest, host);
 

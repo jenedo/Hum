@@ -5,8 +5,10 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { Public } from '../../security/decorators/public.decorator';
 import { DoctorsService } from './doctors.service';
 
+@Public()
 @ApiTags('doctors')
 @ApiBearerAuth()
 @Controller('doctors')

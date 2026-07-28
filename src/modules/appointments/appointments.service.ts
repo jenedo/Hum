@@ -261,6 +261,25 @@ export class AppointmentsService {
     return appointment;
   }
 
+  async getUserAppointments(userId: string, role: Role) {
+    if (role === Role.DOCTOR) {
+      const doctor = await this.prisma.doctorProfile.findUnique({
+        where: { userId },
+      });
+      if (!doctor) return [];
+      return this.prisma.appointment.findMany({
+        where: { doctorProfileId: doctor.id },
+      });
+    }
+    const patient = await this.prisma.patientProfile.findUnique({
+      where: { userId },
+    });
+    if (!patient) return [];
+    return this.prisma.appointment.findMany({
+      where: { patientProfileId: patient.id },
+    });
+  }
+
   private async transitionByDoctor(
     userId: string,
     appointmentId: string,
