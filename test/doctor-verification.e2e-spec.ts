@@ -171,7 +171,7 @@ describe('Doctor Verification (e2e)', () => {
     const uploadRes = await request(app.getHttpServer())
       .post('/api/v1/doctors/verification/documents')
       .set('Authorization', `Bearer ${doctorToken}`)
-      .send({ types: [DocumentType.PMDC_CERT, DocumentType.CNIC] })
+      .send({ types: [DocumentType.PMDC_CERTIFICATE, DocumentType.CNIC_FRONT] })
       .expect(201);
 
     const uploadBody = uploadRes.body as UploadResponse;
@@ -253,7 +253,7 @@ describe('Doctor Verification (e2e)', () => {
     const audit = await prisma.auditLog.findFirst({
       where: {
         action: 'DOCTOR_VERIFICATION_APPROVED',
-        targetType: 'DoctorVerification',
+        resourceType: 'DoctorVerification',
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -290,7 +290,7 @@ describe('Doctor Verification (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/doctors/verification/documents')
       .set('Authorization', `Bearer ${doctorToken}`)
-      .send({ types: [DocumentType.DEGREE] })
+      .send({ types: [DocumentType.MBBS_DEGREE] })
       .expect(201);
 
     await request(app.getHttpServer())
@@ -348,7 +348,7 @@ describe('Doctor Verification (e2e)', () => {
     const audit = await prisma.auditLog.findFirst({
       where: {
         action: 'DOCTOR_VERIFICATION_REJECTED',
-        targetType: 'DoctorVerification',
+        resourceType: 'DoctorVerification',
       },
       orderBy: { createdAt: 'desc' },
     });

@@ -22,6 +22,7 @@ import {
 import { SupabaseAuthGuard } from '../../supabase/supabase-auth.guard';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PharmacyOrderService } from './pharmacy-order.service';
+import { PharmacyService } from './pharmacy.service';
 
 @ApiTags('pharmacy-orders')
 @ApiBearerAuth()
@@ -30,6 +31,7 @@ import { PharmacyOrderService } from './pharmacy-order.service';
 export class PharmacyOrderController {
   constructor(
     private readonly orderService: PharmacyOrderService,
+    private readonly pharmacyService: PharmacyService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -44,11 +46,14 @@ export class PharmacyOrderController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create pharmacy order from cart (checkout)' })
+  @ApiOperation({ summary: 'Create pharmacy order from items or cart' })
   async createOrder(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateOrderDto,
   ) {
+    if (dto.items && dto.items.length > 0) {
+      return this.pharmacyService.createOrder(user.userId, dto);
+    }
     const patientId = await this.getPatientId(user.userId);
     return this.orderService.createOrder(user.userId, patientId, dto);
   }

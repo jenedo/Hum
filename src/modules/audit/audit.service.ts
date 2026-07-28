@@ -17,9 +17,9 @@ export class AuditService {
       data: {
         actorUserId,
         action,
-        targetType,
-        targetId,
-        metadata: metadata ?? Prisma.JsonNull,
+        resourceType: targetType,
+        resourceId: targetId,
+        metadataJson: metadata ? JSON.stringify(metadata) : null,
       },
     });
   }

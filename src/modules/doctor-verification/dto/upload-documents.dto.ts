@@ -6,7 +6,7 @@ export class UploadDocumentsDto {
   @ApiProperty({
     enum: DocumentType,
     isArray: true,
-    example: [DocumentType.PMDC_CERT, DocumentType.CNIC],
+    example: [DocumentType.PMDC_CERTIFICATE, DocumentType.CNIC_FRONT],
   })
   @IsArray()
   @ArrayMinSize(1)

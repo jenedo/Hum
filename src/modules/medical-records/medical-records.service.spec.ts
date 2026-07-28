@@ -77,13 +77,13 @@ describe('MedicalRecordsService', () => {
     );
   });
 
-  it('creates upload intent with isAvailable=false and StorageScanStatus.PENDING', async () => {
+  it('creates upload intent with StorageScanStatus.PENDING', async () => {
     mockPrisma.patientProfile.findUnique.mockResolvedValue({ id: 'pat-1' });
     mockPrisma.storedObject.create.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000001',
-      bucket: 'private-medical-records',
-      objectPath: 'medical-records/pat-1/12345.pdf',
-      uploadExpiresAt: new Date(Date.now() + 3600 * 1000),
+      bucketName: 'private-medical-records',
+      objectKey: 'medical-records/pat-1/12345.pdf',
+      createdAt: new Date(),
     });
 
     const result = await service.createUploadIntent('user-1', {
@@ -98,40 +98,37 @@ describe('MedicalRecordsService', () => {
       'MEDICAL_RECORD_UPLOAD_INTENT',
       'StoredObject',
       '00000000-0000-0000-0000-000000000001',
-      expect.objectContaining({ bucket: 'private-medical-records' }),
+      expect.objectContaining({
+        bucket: 'private-medical-records',
+      }),
     );
   });
 
-  it('confirms upload transitioning scanStatus to VALIDATING with isAvailable=false', async () => {
+  it('confirms upload keeping scanStatus PENDING until validation pipeline processes object', async () => {
     mockPrisma.storedObject.findUnique.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000001',
-      ownerId: 'user-1',
+      patientProfile: { userId: 'user-1' },
       scanStatus: StorageScanStatus.PENDING,
-      isAvailable: false,
-      uploadExpiresAt: new Date(Date.now() + 3600 * 1000),
+      createdAt: new Date(),
     });
     mockPrisma.storedObject.update.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000001',
-      scanStatus: StorageScanStatus.VALIDATING,
-      isAvailable: false,
-      confirmedAt: new Date(),
+      scanStatus: StorageScanStatus.PENDING,
     });
 
     const result = await service.confirmUpload('user-1', {
       storedObjectId: '00000000-0000-0000-0000-000000000001',
     });
 
-    expect(result.scanStatus).toBe(StorageScanStatus.VALIDATING);
-    expect(result.isAvailable).toBe(false);
+    expect(result.scanStatus).toBe(StorageScanStatus.PENDING);
   });
 
   it('rejects confirmation if user is not the owner', async () => {
     mockPrisma.storedObject.findUnique.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000001',
-      ownerId: 'other-user',
+      patientProfile: { userId: 'other-user' },
       scanStatus: StorageScanStatus.PENDING,
-      isAvailable: false,
-      uploadExpiresAt: new Date(Date.now() + 3600 * 1000),
+      createdAt: new Date(),
     });
 
     await expect(
@@ -141,15 +138,13 @@ describe('MedicalRecordsService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('rejects download url request if file is not PASSED and available', async () => {
+  it('rejects download url request if file is not CLEAN', async () => {
     mockPrisma.storedObject.findUnique.mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000001',
-      ownerId: 'user-1',
-      bucket: 'private-medical-records',
-      objectPath: 'medical-records/pat-1/12345.pdf',
-      scanStatus: StorageScanStatus.VALIDATING,
-      isAvailable: false,
-      deletedAt: null,
+      patientProfile: { userId: 'user-1' },
+      bucketName: 'private-medical-records',
+      objectKey: 'medical-records/pat-1/12345.pdf',
+      scanStatus: StorageScanStatus.PENDING,
     });
 
     await expect(

@@ -1,9 +1,28 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
-export class CreateOrderDto {
+export class MedicineOrderItemDto {
   @IsString()
   @IsNotEmpty()
-  deliveryAddressId: string;
+  medicineId: string;
+
+  @IsInt()
+  @Min(1)
+  quantity: number;
+}
+
+export class CreateOrderDto {
+  @IsOptional()
+  @IsString()
+  deliveryAddressId?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -12,4 +31,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   prescriptionId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MedicineOrderItemDto)
+  items?: MedicineOrderItemDto[];
 }

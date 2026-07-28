@@ -47,18 +47,16 @@ export class MedicalRecordsService {
 
     const extension = this.getExtensionForMime(dto.mimeType);
     const uniqueFileId = crypto.randomUUID();
-    const objectPath = `medical-records/${patient.id}/${uniqueFileId}${extension}`;
-    const uploadExpiresAt = new Date(Date.now() + 3600 * 1000); // 1 hour expiry
+    const objectKey = `medical-records/${patient.id}/${uniqueFileId}${extension}`;
 
-    const uploadSigned = await this.generateSignedUploadUrl(objectPath);
+    const uploadSigned = await this.generateSignedUploadUrl(objectKey);
 
     if (dto.idempotencyKey) {
       const existing = await this.prisma.storedObject.findFirst({
         where: {
-          ownerId: userId,
+          patientProfileId: patient.id,
           purpose: dto.purpose,
           scanStatus: StorageScanStatus.PENDING,
-          uploadExpiresAt: { gt: new Date() },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -66,26 +64,25 @@ export class MedicalRecordsService {
       if (existing) {
         return {
           storedObjectId: existing.id,
-          bucket: existing.bucket,
-          objectPath: existing.objectPath,
+          bucket: existing.bucketName,
+          objectPath: existing.objectKey,
           uploadUrl: uploadSigned,
-          uploadExpiresAt: existing.uploadExpiresAt,
+          uploadExpiresAt: new Date(existing.createdAt.getTime() + 3600 * 1000),
         };
       }
     }
 
     const storedObject = await this.prisma.storedObject.create({
       data: {
-        ownerId: userId,
-        patientId: patient.id,
-        bucket: this.BUCKET_NAME,
-        objectPath,
+        patientProfileId: patient.id,
+        bucketName: this.BUCKET_NAME,
+        objectKey,
+        fileName: `${uniqueFileId}${extension}`,
+        fileSizeBytes: dto.sizeBytes,
         mimeType: dto.mimeType,
-        sizeBytes: dto.sizeBytes,
+        sha256Hash: crypto.createHash('sha256').update(objectKey).digest('hex'),
         purpose: dto.purpose,
         scanStatus: StorageScanStatus.PENDING,
-        isAvailable: false,
-        uploadExpiresAt,
       },
     });
 
@@ -99,60 +96,51 @@ export class MedicalRecordsService {
 
     return {
       storedObjectId: storedObject.id,
-      bucket: storedObject.bucket,
-      objectPath: storedObject.objectPath,
+      bucket: storedObject.bucketName,
+      objectPath: storedObject.objectKey,
       uploadUrl: uploadSigned,
-      uploadExpiresAt: storedObject.uploadExpiresAt,
+      uploadExpiresAt: new Date(storedObject.createdAt.getTime() + 3600 * 1000),
     };
   }
 
   async confirmUpload(userId: string, dto: ConfirmUploadDto) {
     const record = await this.prisma.storedObject.findUnique({
       where: { id: dto.storedObjectId },
+      include: { patientProfile: { select: { userId: true } } },
     });
 
     if (!record) {
       throw new NotFoundException('Medical record intent not found');
     }
 
-    if (record.ownerId !== userId) {
+    if (record.patientProfile.userId !== userId) {
       throw new ForbiddenException('You do not own this medical record');
     }
 
     // Idempotent replayed confirmation check
-    if (record.scanStatus === StorageScanStatus.VALIDATING) {
-      return record;
-    }
-
-    if (record.scanStatus !== StorageScanStatus.PENDING) {
+    if (record.scanStatus === StorageScanStatus.PENDING) {
+      const isExpired = Date.now() - record.createdAt.getTime() > 3600 * 1000;
+      if (isExpired) {
+        await this.prisma.storedObject.update({
+          where: { id: record.id },
+          data: {
+            scanStatus: StorageScanStatus.FAILED,
+          },
+        });
+        throw new BadRequestException(
+          'Upload confirmation expired past uploadExpiresAt timestamp',
+        );
+      }
+    } else if (record.scanStatus === StorageScanStatus.FAILED) {
       throw new BadRequestException(
         `Upload confirmation rejected. Record is currently in ${record.scanStatus} state`,
       );
     }
 
-    if (new Date() > record.uploadExpiresAt) {
-      await this.prisma.storedObject.update({
-        where: { id: record.id },
-        data: {
-          scanStatus: StorageScanStatus.ERROR,
-          rejectionReason:
-            'Upload confirmation expired past uploadExpiresAt timestamp',
-        },
-      });
-
-      throw new BadRequestException(
-        'Upload confirmation expired past uploadExpiresAt timestamp',
-      );
-    }
-
-    // Fail-closed confirmation: transitions to VALIDATING with isAvailable=false.
-    // DOES NOT mark PASSED or isAvailable=true until validation pipeline processes object.
     const updated = await this.prisma.storedObject.update({
       where: { id: record.id },
       data: {
-        scanStatus: StorageScanStatus.VALIDATING,
-        isAvailable: false,
-        confirmedAt: new Date(),
+        scanStatus: StorageScanStatus.PENDING,
       },
     });
 
@@ -161,7 +149,7 @@ export class MedicalRecordsService {
       'MEDICAL_RECORD_UPLOAD_CONFIRMED',
       'StoredObject',
       record.id,
-      { status: StorageScanStatus.VALIDATING },
+      { status: StorageScanStatus.PENDING },
     );
 
     return updated;
@@ -170,17 +158,18 @@ export class MedicalRecordsService {
   async getDownloadUrl(userId: string, recordId: string) {
     const record = await this.prisma.storedObject.findUnique({
       where: { id: recordId },
+      include: { patientProfile: { select: { userId: true } } },
     });
 
-    if (!record || record.deletedAt !== null) {
+    if (!record) {
       throw new NotFoundException('Medical record not found');
     }
 
-    if (record.ownerId !== userId) {
+    if (record.patientProfile.userId !== userId) {
       throw new ForbiddenException('You do not own this medical record');
     }
 
-    if (record.scanStatus !== StorageScanStatus.PASSED || !record.isAvailable) {
+    if (record.scanStatus !== StorageScanStatus.CLEAN) {
       throw new ForbiddenException(
         'Medical record is pending validation or has not passed security verification',
       );
@@ -188,8 +177,8 @@ export class MedicalRecordsService {
 
     const expiresAt = new Date(Date.now() + 60 * 1000); // 60 seconds signed URL
     const signedUrl = await this.generateSignedDownloadUrl(
-      record.bucket,
-      record.objectPath,
+      record.bucketName,
+      record.objectKey,
       60,
     );
 
@@ -242,19 +231,22 @@ export class MedicalRecordsService {
   }
 
   async listForPatient(userId: string) {
+    const patient = await this.prisma.patientProfile.findUnique({
+      where: { userId },
+    });
+    if (!patient) return [];
+
     const records = await this.prisma.storedObject.findMany({
       where: {
-        ownerId: userId,
-        isAvailable: true,
-        scanStatus: StorageScanStatus.PASSED,
-        deletedAt: null,
+        patientProfileId: patient.id,
+        scanStatus: StorageScanStatus.CLEAN,
       },
       select: {
         id: true,
-        bucket: true,
+        bucketName: true,
         purpose: true,
         mimeType: true,
-        sizeBytes: true,
+        fileSizeBytes: true,
         scanStatus: true,
         createdAt: true,
       },

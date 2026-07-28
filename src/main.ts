@@ -7,6 +7,9 @@ import * as express from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -18,6 +21,7 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
+  app.use(new CorrelationIdMiddleware().use);
   app.use('/api/v1/payments/webhook', express.raw({ type: '*/*' }));
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
@@ -41,6 +45,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new GlobalExceptionFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
 
   if (configService.get<string>('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder()
@@ -59,3 +65,4 @@ async function bootstrap() {
 }
 
 void bootstrap();
+

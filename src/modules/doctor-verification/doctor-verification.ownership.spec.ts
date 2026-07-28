@@ -118,7 +118,7 @@ describe('Doctor ownership boundaries (unit)', () => {
       const service = new DoctorVerificationService(prisma as never, audit);
 
       const result = await service.uploadDocuments(doctorAUserId, {
-        types: [DocumentType.PMDC_CERT],
+        types: [DocumentType.PMDC_CERTIFICATE],
       });
 
       expect(prisma.doctorProfile.findUnique).toHaveBeenCalledWith({
@@ -133,7 +133,7 @@ describe('Doctor ownership boundaries (unit)', () => {
       expect(prisma.doctorDocument.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           doctorVerificationId: 'verif-a',
-          type: DocumentType.PMDC_CERT,
+          type: DocumentType.PMDC_CERTIFICATE,
         }) as {
           doctorVerificationId: string;
           type: DocumentType;
@@ -154,7 +154,7 @@ describe('Doctor ownership boundaries (unit)', () => {
 
       await expect(
         service.uploadDocuments(doctorBUserId, {
-          types: [DocumentType.CNIC],
+          types: [DocumentType.CNIC_FRONT],
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
 

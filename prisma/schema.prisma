@@ -417,6 +417,17 @@ enum InventoryMovementType {
   RECALLED
 }
 
+model Medicine {
+  id        String   @id @default(uuid())
+  name      String
+  category  String
+  pricePkr  Int
+  unit      String   @default("pack")
+  inStock   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model PharmacyCategory {
   id          String            @id @default(uuid())
   name        String            @unique

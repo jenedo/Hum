@@ -1,18 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { StorageScanStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 
 export interface FileValidationResult {
   scanStatus: StorageScanStatus;
-  isAvailable: boolean;
   sha256?: string;
   rejectionReason?: string;
 }
 
 @Injectable()
 export class MedicalFileValidationService {
-  private readonly logger = Logger;
-
   /**
    * Validates magic bytes against claimed MIME type.
    */
@@ -21,7 +18,7 @@ export class MedicalFileValidationService {
 
     if (claimedMime === 'application/pdf') {
       // %PDF-
-      return buffer.slice(0, 4).toString('ascii') === '%PDF';
+      return buffer.subarray(0, 4).toString('ascii') === '%PDF';
     }
 
     if (claimedMime === 'image/jpeg') {
@@ -51,14 +48,12 @@ export class MedicalFileValidationService {
 
   /**
    * Fail-closed validation boundary.
-   * If real scanner service is not configured, file transitions to VALIDATING with isAvailable=false.
    */
   processValidation(buffer: Buffer, claimedMime: string): FileValidationResult {
     const isValidMagic = this.validateMagicBytes(buffer, claimedMime);
     if (!isValidMagic) {
       return {
-        scanStatus: StorageScanStatus.REJECTED,
-        isAvailable: false,
+        scanStatus: StorageScanStatus.INFECTED,
         rejectionReason:
           'File signature magic bytes do not match declared MIME type',
       };
@@ -66,10 +61,8 @@ export class MedicalFileValidationService {
 
     const sha256 = this.calculateSha256(buffer);
 
-    // Fail-closed: external malware scanner deferred. Returns VALIDATING and isAvailable=false.
     return {
-      scanStatus: StorageScanStatus.VALIDATING,
-      isAvailable: false,
+      scanStatus: StorageScanStatus.PENDING,
       sha256,
       rejectionReason: undefined,
     };

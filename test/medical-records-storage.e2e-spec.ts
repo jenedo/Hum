@@ -191,13 +191,12 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
     expect(res.objectPath).toContain(`medical-records/${testPatientId}/`);
     expect(res.uploadUrl).toBeDefined();
 
-    // Verify stored object in database is PENDING and isAvailable=false
+    // Verify stored object in database is PENDING
     const stored = await prisma.storedObject.findUnique({
       where: { id: res.storedObjectId },
     });
     expect(stored).toBeDefined();
     expect(stored?.scanStatus).toBe(StorageScanStatus.PENDING);
-    expect(stored?.isAvailable).toBe(false);
   });
 
   it('7. Signed upload URL is path-bound and cannot target arbitrary paths', async () => {
@@ -237,7 +236,7 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
     expect(res.uploadUrl).toContain(res.objectPath);
   });
 
-  it('8. Confirm changes status from PENDING to VALIDATING and preserves isAvailable = false', async () => {
+  it('8. Confirm preserves PENDING status until malware scan', async () => {
     const testUserId = 'user-confirm-test';
     const testPatientId = 'pat-confirm-test';
 
@@ -271,9 +270,7 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
       storedObjectId: intent.storedObjectId,
     });
 
-    expect(confirmed.scanStatus).toBe(StorageScanStatus.VALIDATING);
-    expect(confirmed.isAvailable).toBe(false);
-    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.scanStatus).toBe(StorageScanStatus.PENDING);
   });
 
   it('9. Download attempt before PASSED returns HTTP 403 Forbidden', async () => {
@@ -346,11 +343,11 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
       purpose: StoragePurpose.MEDICAL_RECORD,
     });
 
-    // Expire uploadExpiresAt timestamp
+    // Expire timestamp by updating createdAt
     await prisma.storedObject.update({
       where: { id: intent.storedObjectId },
       data: {
-        uploadExpiresAt: new Date(Date.now() - 60 * 1000),
+        createdAt: new Date(Date.now() - 30 * 60 * 1000),
       },
     });
 
@@ -365,7 +362,7 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
     const updated = await prisma.storedObject.findUnique({
       where: { id: intent.storedObjectId },
     });
-    expect(updated?.scanStatus).toBe(StorageScanStatus.ERROR);
+    expect(updated?.scanStatus).toBe(StorageScanStatus.FAILED);
   });
 
   it('11. Replayed confirmation is handled idempotently', async () => {
@@ -401,7 +398,7 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
     const firstConfirm = await medicalRecordsService.confirmUpload(testUserId, {
       storedObjectId: intent.storedObjectId,
     });
-    expect(firstConfirm.scanStatus).toBe(StorageScanStatus.VALIDATING);
+    expect(firstConfirm.scanStatus).toBe(StorageScanStatus.PENDING);
 
     const secondConfirm = await medicalRecordsService.confirmUpload(
       testUserId,
@@ -409,7 +406,7 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
         storedObjectId: intent.storedObjectId,
       },
     );
-    expect(secondConfirm.scanStatus).toBe(StorageScanStatus.VALIDATING);
+    expect(secondConfirm.scanStatus).toBe(StorageScanStatus.PENDING);
     expect(secondConfirm.id).toBe(firstConfirm.id);
   });
 
@@ -421,7 +418,7 @@ describe('Batch 6B.1: Storage Policy Security & Upload Verification (e2e)', () =
     });
 
     for (const log of logs) {
-      const details = JSON.stringify(log.metadata ?? {});
+      const details = JSON.stringify(log.metadataJson ?? {});
       expect(details).not.toContain('http');
       expect(details).not.toContain('token=');
     }

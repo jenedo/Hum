@@ -29,7 +29,7 @@ export class DoctorVerificationController {
     return this.doctorVerificationService.uploadDocuments(user.userId, dto);
   }
 
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN)
   @Post('admin/doctors/:id/verify')
   @ApiOperation({ summary: 'Approve or reject a doctor verification request' })
   verify(
@@ -44,7 +44,7 @@ export class DoctorVerificationController {
     );
   }
 
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN)
   @Get('admin/doctors/pending')
   @ApiOperation({ summary: 'List pending doctor verification requests' })
   listPending() {

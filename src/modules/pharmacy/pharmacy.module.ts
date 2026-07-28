@@ -10,6 +10,8 @@ import { PharmacyCatalogService } from './pharmacy-catalog.service';
 import { PharmacyInventoryService } from './pharmacy-inventory.service';
 import { PharmacyOrderController } from './pharmacy-order.controller';
 import { PharmacyOrderService } from './pharmacy-order.service';
+import { PharmacyController } from './pharmacy.controller';
+import { PharmacyService } from './pharmacy.service';
 
 @Module({
   imports: [DatabaseModule, NotificationsModule],
@@ -18,6 +20,7 @@ import { PharmacyOrderService } from './pharmacy-order.service';
     PharmacyCartController,
     PharmacyOrderController,
     DeliveryAddressController,
+    PharmacyController,
   ],
   providers: [
     PharmacyCatalogService,
@@ -25,6 +28,7 @@ import { PharmacyOrderService } from './pharmacy-order.service';
     PharmacyCartService,
     PharmacyOrderService,
     DeliveryAddressService,
+    PharmacyService,
   ],
   exports: [
     PharmacyCatalogService,
@@ -32,6 +36,7 @@ import { PharmacyOrderService } from './pharmacy-order.service';
     PharmacyCartService,
     PharmacyOrderService,
     DeliveryAddressService,
+    PharmacyService,
   ],
 })
 export class PharmacyModule {}
