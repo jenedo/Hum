@@ -1,8 +1,9 @@
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
+import type { NextFunction, Request, Response } from 'express';
 import * as express from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -12,7 +13,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app: INestApplication = await NestFactory.create(AppModule, {
     bufferLogs: true,
     rawBody: true,
   });
@@ -21,7 +22,10 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  app.use(new CorrelationIdMiddleware().use);
+  const correlationIdMiddleware = new CorrelationIdMiddleware();
+  app.use((req: Request, res: Response, next: NextFunction) =>
+    correlationIdMiddleware.use(req, res, next),
+  );
   app.use('/api/v1/payments/webhook', express.raw({ type: '*/*' }));
   app.setGlobalPrefix('api/v1');
   app.use(helmet());

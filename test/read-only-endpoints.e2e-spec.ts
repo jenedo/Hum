@@ -4,8 +4,10 @@ import {
   UnauthorizedException,
   ValidationPipe,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Role } from '@prisma/client';
+import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
@@ -21,8 +23,47 @@ import { IS_PUBLIC_KEY } from '../src/security/decorators/public.decorator';
 import { SupabaseAuthGuard } from '../src/supabase/supabase-auth.guard';
 import { SupabaseClaimsVerifier } from '../src/supabase/supabase-claims.verifier';
 
+interface CorrelatedAuthenticatedRequest {
+  headers: Record<string, string | string[] | undefined>;
+  supabasePrincipal?: {
+    supabaseUserId: string;
+    email: string;
+  };
+  user?: {
+    userId: string;
+    role: Role;
+  };
+}
+
+interface ApiSuccessResponse<T> {
+  success: boolean;
+  data: T;
+  correlationId: string;
+  timestamp: string;
+}
+
+interface ApiErrorResponse {
+  success: boolean;
+  message?: string | string[];
+  statusCode?: number;
+}
+
+interface DoctorResponseItem {
+  id: string;
+  fullName: string;
+  specialty: string;
+  isVerified: boolean;
+}
+
+interface WalletData {
+  id: string;
+  balanceMinor: number;
+  currency: string;
+}
+
 describe('Read-Only Endpoints (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: INestApplication;
+  let reflector: Reflector;
 
   const mockPrismaService = {
     $connect: jest.fn().mockResolvedValue(undefined),
@@ -90,14 +131,16 @@ describe('Read-Only Endpoints (e2e)', () => {
   };
 
   const mockSupabaseClaimsVerifier = {
-    verifyAccessToken: jest.fn().mockImplementation(async (token: string) => {
+    verifyAccessToken: jest.fn().mockImplementation((token: string) => {
       if (token === 'mock-valid-token') {
-        return {
+        return Promise.resolve({
           supabaseUserId: 'user_e2e_123',
           email: 'test@asaancare.pk',
-        };
+        });
       }
-      throw new UnauthorizedException('Missing or invalid bearer token');
+      return Promise.reject(
+        new UnauthorizedException('Missing or invalid bearer token'),
+      );
     }),
   };
 
@@ -122,7 +165,6 @@ describe('Read-Only Endpoints (e2e)', () => {
         canActivate: (context: ExecutionContext) => {
           const handler = context.getHandler();
           const targetClass = context.getClass();
-          const reflector = app?.get(SupabaseAuthGuard)['reflector'];
           if (reflector) {
             const isPublic = reflector.getAllAndOverride<boolean>(
               IS_PUBLIC_KEY,
@@ -131,8 +173,10 @@ describe('Read-Only Endpoints (e2e)', () => {
             if (isPublic) return true;
           }
 
-          const req = context.switchToHttp().getRequest();
-          const authHeader = req.headers.authorization;
+          const req = context
+            .switchToHttp()
+            .getRequest<CorrelatedAuthenticatedRequest>();
+          const authHeader = req.headers['authorization'];
           if (!authHeader || typeof authHeader !== 'string') {
             throw new UnauthorizedException('Missing or invalid bearer token');
           }
@@ -158,7 +202,11 @@ describe('Read-Only Endpoints (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
-    app.use(new CorrelationIdMiddleware().use);
+    reflector = app.get(Reflector);
+    const correlationIdMiddleware = new CorrelationIdMiddleware();
+    app.use((req: Request, res: Response, next: NextFunction) =>
+      correlationIdMiddleware.use(req, res, next),
+    );
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(
       new ValidationPipe({
@@ -180,60 +228,66 @@ describe('Read-Only Endpoints (e2e)', () => {
 
   describe('GET /api/v1/doctors', () => {
     it('returns 200 with doctor array', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/api/v1/doctors')
         .expect(200);
 
-      expect(response.body).toHaveProperty('success', true);
-      expect(Array.isArray(response.body.data)).toBe(true);
-      expect(response.body.data.length).toBeGreaterThan(0);
-      expect(response.body.data[0]).toHaveProperty('id', 'doc_1');
+      const body = response.body as ApiSuccessResponse<DoctorResponseItem[]>;
+      expect(body).toHaveProperty('success', true);
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+      expect(body.data[0]).toHaveProperty('id', 'doc_1');
     });
   });
 
   describe('GET /api/v1/appointments', () => {
     it('returns 401 when authorization header is missing', async () => {
-      await request(app.getHttpServer())
+      await request(app.getHttpServer() as App)
         .get('/api/v1/appointments')
         .expect(401);
     });
 
     it('returns 200 with appointments when valid bearer token is provided', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/api/v1/appointments')
         .set('Authorization', 'Bearer mock-valid-token')
         .expect(200);
 
-      expect(response.body).toHaveProperty('success', true);
-      expect(Array.isArray(response.body.data)).toBe(true);
+      const body = response.body as ApiSuccessResponse<unknown[]>;
+      expect(body).toHaveProperty('success', true);
+      expect(Array.isArray(body.data)).toBe(true);
     });
   });
 
   describe('GET /api/v1/wallet', () => {
     it('returns 401 when authorization header is missing', async () => {
-      await request(app.getHttpServer()).get('/api/v1/wallet').expect(401);
+      await request(app.getHttpServer() as App)
+        .get('/api/v1/wallet')
+        .expect(401);
     });
 
     it('returns 200 with wallet data when valid bearer token is provided', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .get('/api/v1/wallet')
         .set('Authorization', 'Bearer mock-valid-token')
         .expect(200);
 
-      expect(response.body).toHaveProperty('success', true);
-      expect(response.body.data).toHaveProperty('balanceMinor', 50000);
+      const body = response.body as ApiSuccessResponse<WalletData>;
+      expect(body).toHaveProperty('success', true);
+      expect(body.data).toHaveProperty('balanceMinor', 50000);
     });
   });
 
   describe('POST /api/v1/payments/intent', () => {
     it('returns 400 Bad Request when body is missing required fields', async () => {
-      const response = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer() as App)
         .post('/api/v1/payments/intent')
         .set('Authorization', 'Bearer mock-valid-token')
         .send({})
         .expect(400);
 
-      expect(response.body).toHaveProperty('success', false);
+      const body = response.body as ApiErrorResponse;
+      expect(body).toHaveProperty('success', false);
       expect(mockPaymentsService.createPaymentIntent).not.toHaveBeenCalled();
     });
   });
