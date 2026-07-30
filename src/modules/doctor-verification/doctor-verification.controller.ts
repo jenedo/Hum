@@ -5,7 +5,8 @@ import type { AuthUser } from '../../security/decorators/current-user.decorator'
 import { CurrentUser } from '../../security/decorators/current-user.decorator';
 import { Roles } from '../../security/decorators/roles.decorator';
 import { DoctorVerificationService } from './doctor-verification.service';
-import { UploadDocumentsDto } from './dto/upload-documents.dto';
+import { ConfirmDocumentUploadDto } from './dto/confirm-document-upload.dto';
+import { RequestUploadUrlDto } from './dto/request-upload-url.dto';
 import { VerifyDoctorDto } from './dto/verify-doctor.dto';
 
 @ApiTags('doctor-verification')
@@ -17,16 +18,39 @@ export class DoctorVerificationController {
   ) {}
 
   @Roles(Role.DOCTOR)
+  @Post('doctors/verification/documents/upload-url')
+  @ApiOperation({
+    summary: 'Request a signed upload URL for a doctor verification document',
+  })
+  requestUploadUrl(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RequestUploadUrlDto,
+  ) {
+    return this.doctorVerificationService.requestUploadUrl(user.userId, dto);
+  }
+
+  @Roles(Role.DOCTOR)
+  @Post('doctors/verification/documents/confirm')
+  @ApiOperation({
+    summary: 'Confirm completed upload of a doctor verification document',
+  })
+  confirmDocumentUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ConfirmDocumentUploadDto,
+  ) {
+    return this.doctorVerificationService.confirmDocumentUpload(
+      user.userId,
+      dto,
+    );
+  }
+
+  @Roles(Role.DOCTOR)
   @Post('doctors/verification/documents')
   @ApiOperation({
-    summary:
-      'Upload doctor verification document metadata (real file upload deferred)',
+    summary: 'Legacy direct upload endpoint (deprecated)',
   })
-  uploadDocuments(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: UploadDocumentsDto,
-  ) {
-    return this.doctorVerificationService.uploadDocuments(user.userId, dto);
+  uploadDocuments() {
+    return this.doctorVerificationService.uploadDocuments();
   }
 
   @Roles(Role.ADMIN)

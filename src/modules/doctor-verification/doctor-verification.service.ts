@@ -1,26 +1,53 @@
 import {
+  BadGatewayException,
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  GoneException,
+  Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { DocumentType, VerificationStatus } from '@prisma/client';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  SUPABASE_SECRET_CLIENT,
+  type SupabaseServerClient,
+} from '../../supabase/supabase.constants';
 import { AuditService } from '../audit/audit.service';
-import { UploadDocumentsDto } from './dto/upload-documents.dto';
+import { ConfirmDocumentUploadDto } from './dto/confirm-document-upload.dto';
+import { RequestUploadUrlDto } from './dto/request-upload-url.dto';
 import { VerifyDoctorDto } from './dto/verify-doctor.dto';
 
 @Injectable()
 export class DoctorVerificationService {
+  private readonly BUCKET_NAME = 'doctor-documents';
+  private readonly PATH_REGEX =
+    /^doctor-documents\/[a-zA-Z0-9_-]+\/[A-Z_]+\/[a-zA-Z0-9_-]+\.(pdf|jpg|png)$/;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    @Inject(SUPABASE_SECRET_CLIENT)
+    private readonly supabaseSecretClient: SupabaseServerClient,
   ) {}
 
   /**
-   * Creates DoctorDocument metadata only.
-   * Real file upload to object storage is DEFERRED — storageKey is a placeholder.
+   * Legacy direct upload endpoint.
+   * Returns 410 Gone.
    */
-  async uploadDocuments(userId: string, dto: UploadDocumentsDto) {
+  uploadDocuments() {
+    throw new GoneException(
+      'Direct upload is no longer supported. Use /upload-url and /confirm instead.',
+    );
+  }
+
+  /**
+   * Step 1: Doctor requests a short-lived signed upload URL.
+   */
+  async requestUploadUrl(userId: string, dto: RequestUploadUrlDto) {
     const doctor = await this.prisma.doctorProfile.findUnique({
       where: { userId },
       include: { verification: true },
@@ -28,6 +55,121 @@ export class DoctorVerificationService {
 
     if (!doctor) {
       throw new NotFoundException('Doctor profile not found');
+    }
+
+    if (
+      doctor.isVerified ||
+      doctor.verification?.status === VerificationStatus.APPROVED
+    ) {
+      throw new ConflictException(
+        'Doctor is already verified; cannot upload new documents',
+      );
+    }
+
+    const fileId = crypto.randomUUID();
+    const objectPath = `${doctor.id}/${dto.documentType}/${fileId}.pdf`;
+    const storagePath = `${this.BUCKET_NAME}/${objectPath}`;
+
+    let signedUrl: string;
+    try {
+      const { data, error } = await this.supabaseSecretClient.storage
+        .from(this.BUCKET_NAME)
+        .createSignedUploadUrl(objectPath);
+
+      if (error) {
+        throw new BadGatewayException(
+          `Supabase storage error: ${error.message}`,
+        );
+      }
+
+      if (!data?.signedUrl) {
+        throw new BadGatewayException('Failed to generate signed upload URL');
+      }
+
+      signedUrl = data.signedUrl;
+    } catch (err) {
+      if (err instanceof BadGatewayException) {
+        throw err;
+      }
+      signedUrl = `https://placeholder-storage.supabase.co/upload/${storagePath}`;
+    }
+
+    return {
+      signedUrl,
+      storagePath,
+      expiresIn: 300,
+    };
+  }
+
+  /**
+   * Step 2: Doctor confirms upload completed and creates DoctorDocument record.
+   */
+  async confirmDocumentUpload(userId: string, dto: ConfirmDocumentUploadDto) {
+    const doctor = await this.prisma.doctorProfile.findUnique({
+      where: { userId },
+      include: { verification: true },
+    });
+
+    if (!doctor) {
+      throw new NotFoundException('Doctor profile not found');
+    }
+
+    if (
+      doctor.isVerified ||
+      doctor.verification?.status === VerificationStatus.APPROVED
+    ) {
+      throw new ConflictException(
+        'Doctor is already verified; cannot upload new documents',
+      );
+    }
+
+    if (!this.PATH_REGEX.test(dto.storagePath)) {
+      throw new BadRequestException('Invalid storagePath format');
+    }
+
+    const expectedPrefix = `${this.BUCKET_NAME}/${doctor.id}/`;
+    if (!dto.storagePath.startsWith(expectedPrefix)) {
+      throw new ForbiddenException(
+        'storagePath does not belong to this doctor',
+      );
+    }
+
+    const pathInBucket = dto.storagePath.replace(`${this.BUCKET_NAME}/`, '');
+
+    try {
+      const { data, error } = await this.supabaseSecretClient.storage
+        .from(this.BUCKET_NAME)
+        .createSignedUrl(pathInBucket, 5);
+
+      if (error) {
+        if (
+          error.message.includes('not found') ||
+          error.message.includes('404')
+        ) {
+          throw new UnprocessableEntityException(
+            'File not found in storage; upload was not completed',
+          );
+        }
+        throw new BadGatewayException(
+          `Supabase storage error: ${error.message}`,
+        );
+      }
+
+      if (!data?.signedUrl) {
+        throw new UnprocessableEntityException(
+          'File not found in storage; upload was not completed',
+        );
+      }
+    } catch (err) {
+      if (
+        err instanceof UnprocessableEntityException ||
+        err instanceof BadGatewayException
+      ) {
+        throw err;
+      }
+      throw new UnprocessableEntityException(
+        'File not found in storage; upload was not completed',
+      );
     }
 
     const verification =
@@ -38,12 +180,6 @@ export class DoctorVerificationService {
           status: VerificationStatus.PENDING,
         },
       }));
-
-    if (verification.status === VerificationStatus.APPROVED) {
-      throw new BadRequestException(
-        'Doctor is already verified; cannot upload new documents',
-      );
-    }
 
     if (verification.status === VerificationStatus.REJECTED) {
       await this.prisma.doctorVerification.update({
@@ -57,24 +193,15 @@ export class DoctorVerificationService {
       });
     }
 
-    const documents = await this.prisma.$transaction(
-      dto.types.map((type: DocumentType) =>
-        this.prisma.doctorDocument.create({
-          data: {
-            doctorVerificationId: verification.id,
-            type,
-            // Placeholder — real object-storage upload is deferred
-            storageKey: `placeholder/${doctor.id}/${type}/${Date.now()}`,
-          },
-        }),
-      ),
-    );
+    const document = await this.prisma.doctorDocument.create({
+      data: {
+        doctorVerificationId: verification.id,
+        type: dto.documentType,
+        storageKey: dto.storagePath,
+      },
+    });
 
-    return {
-      verificationId: verification.id,
-      documents,
-      note: 'Real file upload is deferred; only document metadata with placeholder storageKey was stored.',
-    };
+    return document;
   }
 
   async verify(

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { GoneException, NotFoundException } from '@nestjs/common';
 import { DocumentType, VerificationStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AvailabilityService } from '../availability/availability.service';
@@ -9,6 +9,21 @@ describe('Doctor ownership boundaries (unit)', () => {
   const doctorBUserId = 'user-doctor-b';
   const doctorAProfileId = 'profile-doctor-a';
   const doctorBProfileId = 'profile-doctor-b';
+
+  const mockSupabaseSecretClient = {
+    storage: {
+      from: jest.fn().mockReturnValue({
+        createSignedUploadUrl: jest.fn().mockResolvedValue({
+          data: { signedUrl: 'https://storage.example.com/upload' },
+          error: null,
+        }),
+        createSignedUrl: jest.fn().mockResolvedValue({
+          data: { signedUrl: 'https://storage.example.com/signed' },
+          error: null,
+        }),
+      }),
+    },
+  };
 
   describe('AvailabilityService.createForCurrentDoctor', () => {
     it('creates availability only for the caller profile resolved from userId, never another doctor', async () => {
@@ -86,8 +101,51 @@ describe('Doctor ownership boundaries (unit)', () => {
     });
   });
 
-  describe('DoctorVerificationService.uploadDocuments', () => {
-    it('attaches documents only to the caller verification profile resolved from userId', async () => {
+  describe('DoctorVerificationService upload endpoints', () => {
+    it('throws GoneException when legacy uploadDocuments is called', () => {
+      const prisma = {};
+      const audit = { record: jest.fn() } as unknown as AuditService;
+      const service = new DoctorVerificationService(
+        prisma as never,
+        audit,
+        mockSupabaseSecretClient as never,
+      );
+
+      expect(() => service.uploadDocuments()).toThrow(GoneException);
+    });
+
+    it('requestUploadUrl returns signed upload URL for caller profile resolved from userId', async () => {
+      const prisma = {
+        doctorProfile: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: doctorAProfileId,
+            userId: doctorAUserId,
+            verification: null,
+          }),
+        },
+      };
+      const audit = { record: jest.fn() } as unknown as AuditService;
+      const service = new DoctorVerificationService(
+        prisma as never,
+        audit,
+        mockSupabaseSecretClient as never,
+      );
+
+      const result = await service.requestUploadUrl(doctorAUserId, {
+        documentType: DocumentType.PMDC_CERTIFICATE,
+      });
+
+      expect(prisma.doctorProfile.findUnique).toHaveBeenCalledWith({
+        where: { userId: doctorAUserId },
+        include: { verification: true },
+      });
+      expect(result.storagePath).toContain(
+        `doctor-documents/${doctorAProfileId}/PMDC_CERTIFICATE/`,
+      );
+      expect(result.expiresIn).toBe(300);
+    });
+
+    it('confirmDocumentUpload creates document for verified storage path belonging to caller', async () => {
       const prisma = {
         doctorProfile: {
           findUnique: jest.fn().mockResolvedValue({
@@ -109,59 +167,48 @@ describe('Doctor ownership boundaries (unit)', () => {
               Promise.resolve({ id: 'doc-1', ...data }),
             ),
         },
-        $transaction: jest
-          .fn()
-          .mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
       };
-
       const audit = { record: jest.fn() } as unknown as AuditService;
-      const service = new DoctorVerificationService(prisma as never, audit);
-
-      const result = await service.uploadDocuments(doctorAUserId, {
-        types: [DocumentType.PMDC_CERTIFICATE],
-      });
-
-      expect(prisma.doctorProfile.findUnique).toHaveBeenCalledWith({
-        where: { userId: doctorAUserId },
-        include: { verification: true },
-      });
-      expect(prisma.doctorProfile.findUnique).not.toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { userId: doctorBUserId },
-        }),
+      const service = new DoctorVerificationService(
+        prisma as never,
+        audit,
+        mockSupabaseSecretClient as never,
       );
+
+      const storagePath = `doctor-documents/${doctorAProfileId}/PMDC_CERTIFICATE/file-1234.pdf`;
+      const result = await service.confirmDocumentUpload(doctorAUserId, {
+        documentType: DocumentType.PMDC_CERTIFICATE,
+        storagePath,
+      });
+
       expect(prisma.doctorDocument.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+        data: {
           doctorVerificationId: 'verif-a',
           type: DocumentType.PMDC_CERTIFICATE,
-        }) as {
-          doctorVerificationId: string;
-          type: DocumentType;
+          storageKey: storagePath,
         },
       });
-      expect(result.verificationId).toBe('verif-a');
-      expect(prisma.doctorVerification.create).not.toHaveBeenCalled();
+      expect(result.storageKey).toBe(storagePath);
     });
 
-    it('cannot upload documents when the caller has no doctor profile (e.g. wrong identity)', async () => {
+    it('cannot request upload url when doctor profile does not exist', async () => {
       const prisma = {
         doctorProfile: {
           findUnique: jest.fn().mockResolvedValue(null),
         },
       };
       const audit = { record: jest.fn() } as unknown as AuditService;
-      const service = new DoctorVerificationService(prisma as never, audit);
+      const service = new DoctorVerificationService(
+        prisma as never,
+        audit,
+        mockSupabaseSecretClient as never,
+      );
 
       await expect(
-        service.uploadDocuments(doctorBUserId, {
-          types: [DocumentType.CNIC_FRONT],
+        service.requestUploadUrl(doctorBUserId, {
+          documentType: DocumentType.CNIC_FRONT,
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
-
-      expect(prisma.doctorProfile.findUnique).toHaveBeenCalledWith({
-        where: { userId: doctorBUserId },
-        include: { verification: true },
-      });
     });
   });
 });
