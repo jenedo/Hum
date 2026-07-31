@@ -35,6 +35,8 @@ type EventPayload = {
   data?: Record<string, string>;
 };
 
+const NOTIFICATION_DELIVERY_BATCH_SIZE = 250;
+
 @Injectable()
 export class OutboxWorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OutboxWorkerService.name);
@@ -175,28 +177,6 @@ export class OutboxWorkerService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const deliveryCreations = devices.map((device) => {
-      const isInvalid = fcmResult.invalidTokens.includes(device.fcmToken);
-      return this.prisma.notificationDelivery.create({
-        data: {
-          notificationId: notification.id,
-          deviceRegistrationId: device.id,
-          status: isInvalid
-            ? DeliveryStatus.FAILED
-            : DeliveryStatus.ACCEPTED_BY_PROVIDER,
-          sentAt: new Date(),
-        },
-      });
-    });
-    await Promise.all(deliveryCreations);
-
-    if (fcmResult.invalidTokens.length > 0) {
-      await this.prisma.deviceRegistration.updateMany({
-        where: { fcmToken: { in: fcmResult.invalidTokens } },
-        data: { enabled: false, revokedAt: new Date() },
-      });
-    }
-
     let finalStatus: NotificationStatus = NotificationStatus.FAILED;
     if (fcmResult.successCount === devices.length) {
       finalStatus = NotificationStatus.SENT;
@@ -204,17 +184,50 @@ export class OutboxWorkerService implements OnModuleInit, OnModuleDestroy {
       finalStatus = NotificationStatus.PARTIAL;
     }
 
-    await this.prisma.notification.update({
-      where: { id: notification.id },
-      data: {
-        status: finalStatus,
-        sentAt: new Date(),
-      },
-    });
+    const persistedAt = new Date();
+    const invalidTokens = new Set(fcmResult.invalidTokens);
+    const deliveryRows = devices.map((device) => ({
+      notificationId: notification.id,
+      deviceRegistrationId: device.id,
+      status: invalidTokens.has(device.fcmToken)
+        ? DeliveryStatus.FAILED
+        : DeliveryStatus.ACCEPTED_BY_PROVIDER,
+      sentAt: persistedAt,
+    }));
 
-    await this.prisma.outboxEvent.update({
-      where: { id: event.id },
-      data: { status: 'PROCESSED', processedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      for (
+        let offset = 0;
+        offset < deliveryRows.length;
+        offset += NOTIFICATION_DELIVERY_BATCH_SIZE
+      ) {
+        await tx.notificationDelivery.createMany({
+          data: deliveryRows.slice(
+            offset,
+            offset + NOTIFICATION_DELIVERY_BATCH_SIZE,
+          ),
+        });
+      }
+
+      if (fcmResult.invalidTokens.length > 0) {
+        await tx.deviceRegistration.updateMany({
+          where: { fcmToken: { in: fcmResult.invalidTokens } },
+          data: { enabled: false, revokedAt: persistedAt },
+        });
+      }
+
+      await tx.notification.update({
+        where: { id: notification.id },
+        data: {
+          status: finalStatus,
+          sentAt: persistedAt,
+        },
+      });
+
+      await tx.outboxEvent.update({
+        where: { id: event.id },
+        data: { status: 'PROCESSED', processedAt: persistedAt },
+      });
     });
   }
 

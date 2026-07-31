@@ -1,8 +1,10 @@
 import {
   AppMode,
+  DeliveryStatus,
   DevicePlatform,
   NotificationStatus,
   NotificationType,
+  type Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { FirebaseAdminService } from './firebase/firebase-admin.service';
@@ -10,6 +12,7 @@ import { OutboxWorkerService } from './outbox-worker.service';
 
 type MockPrisma = {
   $queryRaw: jest.Mock;
+  $transaction: jest.Mock;
   notification: {
     create: jest.Mock;
     update: jest.Mock;
@@ -23,6 +26,7 @@ type MockPrisma = {
   };
   notificationDelivery: {
     create: jest.Mock;
+    createMany: jest.Mock;
   };
   outboxEvent: {
     update: jest.Mock;
@@ -31,6 +35,10 @@ type MockPrisma = {
 
 type MockFirebaseAdmin = {
   sendMulticast: jest.Mock;
+};
+
+type DeliveryCreateManyArgs = {
+  data: Prisma.NotificationDeliveryCreateManyInput[];
 };
 
 describe('OutboxWorkerService', () => {
@@ -106,6 +114,7 @@ describe('OutboxWorkerService', () => {
   beforeEach(() => {
     mockPrisma = {
       $queryRaw: jest.fn(),
+      $transaction: jest.fn(),
       notification: {
         create: jest.fn().mockResolvedValue(sampleNotification),
         update: jest.fn().mockResolvedValue(sampleNotification),
@@ -119,11 +128,16 @@ describe('OutboxWorkerService', () => {
       },
       notificationDelivery: {
         create: jest.fn().mockResolvedValue({ id: 'deliv-1' }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       outboxEvent: {
         update: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
       },
     };
+    mockPrisma.$transaction.mockImplementation(
+      async <T>(callback: (tx: MockPrisma) => Promise<T>): Promise<T> =>
+        callback(mockPrisma),
+    );
 
     mockFirebaseAdmin = {
       sendMulticast: jest.fn().mockResolvedValue({
@@ -276,6 +290,41 @@ describe('OutboxWorkerService', () => {
         status: NotificationStatus.PARTIAL,
       }),
     });
+  });
+
+  it('persists large delivery fan-out in bounded bulk inserts', async () => {
+    const devices = Array.from({ length: 501 }, (_, index) => ({
+      ...sampleDevice,
+      id: `dev-${index}`,
+      installationId: `installation-${index}`,
+      fcmToken: `fcm-token-${index}`,
+    }));
+    mockPrisma.$queryRaw.mockResolvedValue([sampleOutboxEvent]);
+    mockPrisma.deviceRegistration.findMany.mockResolvedValue(devices);
+    mockFirebaseAdmin.sendMulticast.mockResolvedValue({
+      successCount: devices.length,
+      failureCount: 0,
+      invalidTokens: [],
+    });
+
+    await service.processOutbox();
+
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.notificationDelivery.createMany).toHaveBeenCalledTimes(3);
+    const createManyCalls = mockPrisma.notificationDelivery.createMany.mock
+      .calls as [DeliveryCreateManyArgs][];
+    for (const [call] of createManyCalls) {
+      expect(call.data.length).toBeLessThanOrEqual(250);
+      expect(call.data[0]).toEqual(
+        expect.objectContaining({
+          notificationId: 'notif-1',
+          status: DeliveryStatus.ACCEPTED_BY_PROVIDER,
+        }),
+      );
+      expect(call.data[0].deviceRegistrationId).toEqual(expect.any(String));
+      expect(call.data[0].sentAt).toBeInstanceOf(Date);
+    }
+    expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
   });
 
   it('event with attempts >= 5 goes to DEAD_LETTER on error', async () => {
