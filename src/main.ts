@@ -2,13 +2,13 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import compression from 'compression';
 import type { NextFunction, Request, Response } from 'express';
 import * as express from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { responseCompression } from './common/http/response-compression';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 
@@ -29,7 +29,7 @@ async function bootstrap() {
   app.use('/api/v1/payments/webhook', express.raw({ type: '*/*' }));
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
-  app.use(compression());
+  app.use(responseCompression());
 
   const corsOrigins = configService
     .getOrThrow<string>('CORS_ORIGINS')
