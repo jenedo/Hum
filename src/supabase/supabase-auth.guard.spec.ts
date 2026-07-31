@@ -1,4 +1,5 @@
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { PrismaService } from '../database/prisma.service';
 import { SupabaseAuthGuard } from './supabase-auth.guard';
 import { SupabaseClaimsVerifier } from './supabase-claims.verifier';
 import { SupabasePrincipal } from './supabase-principal';
@@ -93,5 +94,27 @@ describe('SupabaseAuthGuard', () => {
 
     expect(verifier.verifyAccessToken).toHaveBeenCalledTimes(1);
     expect(verifier.verifyAccessToken).toHaveBeenCalledWith('extracted-token');
+  });
+
+  it('throws UnauthorizedException when token is valid but user not in DB', async () => {
+    const prisma = {
+      user: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    const guardWithPrisma = new SupabaseAuthGuard(
+      verifier as unknown as SupabaseClaimsVerifier,
+      undefined,
+      prisma as unknown as PrismaService,
+    );
+    verifier.verifyAccessToken.mockResolvedValue(principal);
+
+    await expect(
+      guardWithPrisma.canActivate(
+        contextFor({
+          headers: { authorization: 'Bearer verified-token' },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

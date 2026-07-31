@@ -51,12 +51,14 @@ export class SupabaseAuthGuard implements CanActivate {
         select: { id: true, role: true },
       });
 
-      if (dbUser) {
-        request.user = {
-          userId: dbUser.id,
-          role: dbUser.role,
-        };
+      if (!dbUser) {
+        throw new UnauthorizedException('User account not found or inactive');
       }
+
+      request.user = {
+        userId: dbUser.id,
+        role: dbUser.role,
+      };
     }
 
     return true;
