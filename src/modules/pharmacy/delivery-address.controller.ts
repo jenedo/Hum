@@ -11,11 +11,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import {
   AuthUser,
   CurrentUser,
 } from '../../security/decorators/current-user.decorator';
+import { Roles } from '../../security/decorators/roles.decorator';
+import { RolesGuard } from '../../security/roles.guard';
 import { SupabaseAuthGuard } from '../../supabase/supabase-auth.guard';
 import { DeliveryAddressService } from './delivery-address.service';
 import { CreateDeliveryAddressDto } from './dto/delivery-address.dto';
@@ -23,7 +26,7 @@ import { CreateDeliveryAddressDto } from './dto/delivery-address.dto';
 @ApiTags('pharmacy-addresses')
 @ApiBearerAuth()
 @Controller('pharmacy/addresses')
-@UseGuards(SupabaseAuthGuard)
+@UseGuards(SupabaseAuthGuard, RolesGuard)
 export class DeliveryAddressController {
   constructor(
     private readonly addressService: DeliveryAddressService,
@@ -40,6 +43,7 @@ export class DeliveryAddressController {
     return patient.id;
   }
 
+  @Roles(Role.PATIENT)
   @Get()
   @ApiOperation({ summary: 'List delivery addresses for current user' })
   async getAddresses(@CurrentUser() user: AuthUser) {
@@ -47,6 +51,7 @@ export class DeliveryAddressController {
     return this.addressService.getAddresses(patientId);
   }
 
+  @Roles(Role.PATIENT)
   @Post()
   @ApiOperation({ summary: 'Create new delivery address' })
   async createAddress(
@@ -57,6 +62,7 @@ export class DeliveryAddressController {
     return this.addressService.createAddress(patientId, dto);
   }
 
+  @Roles(Role.PATIENT)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete delivery address' })

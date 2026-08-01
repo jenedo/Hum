@@ -17,12 +17,14 @@ export class WalletController {
   constructor(private readonly walletService: WalletService) {}
 
   @Get()
+  @Roles(Role.PATIENT, Role.DOCTOR, Role.ADMIN)
   @ApiOperation({ summary: 'Get current user wallet snapshot' })
   async getWallet(@CurrentUser() user: AuthUser) {
     return this.walletService.getWallet(user.userId);
   }
 
   @Get('transactions')
+  @Roles(Role.PATIENT, Role.DOCTOR, Role.ADMIN)
   @ApiOperation({ summary: 'Get paginated wallet transactions' })
   async getTransactions(
     @CurrentUser() user: AuthUser,

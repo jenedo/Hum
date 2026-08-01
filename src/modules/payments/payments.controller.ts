@@ -8,20 +8,26 @@ import {
   Param,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import type { AuthUser } from '../../security/decorators/current-user.decorator';
 import { CurrentUser } from '../../security/decorators/current-user.decorator';
 import { Public } from '../../security/decorators/public.decorator';
+import { Roles } from '../../security/decorators/roles.decorator';
+import { RolesGuard } from '../../security/roles.guard';
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { PaymentsService } from './payments.service';
 
 @ApiTags('payments')
 @ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
+  @Roles(Role.PATIENT, Role.DOCTOR)
   @Post('intent')
   @ApiOperation({ summary: 'Create a payment intent for an order' })
   async createIntent(
@@ -31,6 +37,7 @@ export class PaymentsController {
     return this.paymentsService.createPaymentIntent(user.userId, dto);
   }
 
+  @Roles(Role.PATIENT, Role.DOCTOR, Role.ADMIN)
   @Get(':id')
   @ApiOperation({ summary: 'Get payment status by ID' })
   async getStatus(@CurrentUser() user: AuthUser, @Param('id') id: string) {
