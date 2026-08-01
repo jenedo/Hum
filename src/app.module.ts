@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
+import { ResilienceModule } from './common/resilience/resilience.module';
 import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
@@ -77,6 +78,7 @@ import { SupabaseModule } from './supabase/supabase.module';
       },
     ]),
     DatabaseModule,
+    ResilienceModule,
     SecurityModule,
     SupabaseModule,
     AuditModule,

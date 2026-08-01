@@ -1,6 +1,11 @@
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import type { Request } from 'express';
+import {
+  CircuitOpenError,
+  DependencyConcurrencyError,
+  DependencyTimeoutError,
+} from '../resilience/dependency-circuit-breaker';
 import { GlobalExceptionFilter } from './global-exception.filter';
 
 interface ErrorResponseBody {
@@ -453,5 +458,100 @@ describe('GlobalExceptionFilter', () => {
     expect(payload.error.code).toBe(400);
     expect(payload.error.message).toBe('Envelope check');
     expect(payload.correlationId).toBe('envelope-corr-id');
+  });
+
+  describe('circuit-breaker errors', () => {
+    function createMockResponseWithHeaders() {
+      const mockSetHeader = jest.fn();
+      const mockJson = jest.fn();
+      const mockStatus = jest.fn().mockReturnValue({
+        json: mockJson,
+        setHeader: mockSetHeader,
+      });
+      const mockResponseChain = {
+        status: mockStatus,
+        json: mockJson,
+        setHeader: mockSetHeader,
+      };
+      return { mockStatus, mockJson, mockSetHeader, mockResponseChain };
+    }
+
+    it('returns 503 with Retry-After for CircuitOpenError', () => {
+      const { mockStatus, mockJson, mockSetHeader, mockResponseChain } =
+        createMockResponseWithHeaders();
+      const request: FilterRequest = {
+        method: 'POST',
+        url: '/api/v1/payments',
+        correlationId: 'circuit-corr-1',
+      };
+      const host = createMockArgumentsHost(
+        request,
+        mockResponseChain as unknown as MockResponseChain,
+      );
+
+      filter.catch(new CircuitOpenError('payment-gateway'), host);
+
+      expect(mockStatus).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(mockSetHeader).toHaveBeenCalledWith('Retry-After', '30');
+      const payload = mockJson.mock.calls[0][0] as ErrorResponseBody;
+      expect(payload.error.code).toBe(503);
+      expect(payload.error.message).toBe(
+        'Service temporarily unavailable, please retry shortly',
+      );
+      expect(payload.error.message).not.toContain('payment-gateway');
+      expect(payload.correlationId).toBe('circuit-corr-1');
+    });
+
+    it('returns 504 for DependencyTimeoutError', () => {
+      const { mockStatus, mockJson, mockResponseChain } =
+        createMockResponseWithHeaders();
+      const request: FilterRequest = {
+        method: 'GET',
+        url: '/api/v1/medical-records/download',
+        correlationId: 'timeout-corr-1',
+      };
+      const host = createMockArgumentsHost(
+        request,
+        mockResponseChain as unknown as MockResponseChain,
+      );
+
+      filter.catch(
+        new DependencyTimeoutError('supabase-storage', 5000),
+        host,
+      );
+
+      expect(mockStatus).toHaveBeenCalledWith(HttpStatus.GATEWAY_TIMEOUT);
+      const payload = mockJson.mock.calls[0][0] as ErrorResponseBody;
+      expect(payload.error.code).toBe(504);
+      expect(payload.error.message).toBe(
+        'An upstream service did not respond in time',
+      );
+      expect(payload.error.message).not.toContain('supabase-storage');
+    });
+
+    it('returns 503 with Retry-After for DependencyConcurrencyError', () => {
+      const { mockStatus, mockJson, mockSetHeader, mockResponseChain } =
+        createMockResponseWithHeaders();
+      const request: FilterRequest = {
+        method: 'POST',
+        url: '/api/v1/auth/me',
+        correlationId: 'concurrency-corr-1',
+      };
+      const host = createMockArgumentsHost(
+        request,
+        mockResponseChain as unknown as MockResponseChain,
+      );
+
+      filter.catch(
+        new DependencyConcurrencyError('supabase-auth'),
+        host,
+      );
+
+      expect(mockStatus).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(mockSetHeader).toHaveBeenCalledWith('Retry-After', '5');
+      const payload = mockJson.mock.calls[0][0] as ErrorResponseBody;
+      expect(payload.error.code).toBe(503);
+      expect(payload.error.message).not.toContain('supabase-auth');
+    });
   });
 });

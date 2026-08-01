@@ -1,5 +1,11 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CircuitBreakerRegistry } from '../common/resilience/circuit-breaker-registry';
+import {
+  CircuitOpenError,
+  DependencyConcurrencyError,
+  DependencyTimeoutError,
+} from '../common/resilience/dependency-circuit-breaker';
 import {
   SUPABASE_CLIENT,
   type SupabaseServerClient,
@@ -18,6 +24,7 @@ export class SupabaseClaimsVerifier {
     @Inject(SUPABASE_CLIENT)
     private readonly supabase: SupabaseServerClient,
     private readonly configService: ConfigService,
+    private readonly circuitBreakerRegistry: CircuitBreakerRegistry,
   ) {}
 
   async verifyAccessToken(accessToken: string): Promise<SupabasePrincipal> {
@@ -28,8 +35,19 @@ export class SupabaseClaimsVerifier {
 
     let result: GetClaimsResult;
     try {
-      result = await this.supabase.auth.getClaims(token);
-    } catch {
+      result = await this.circuitBreakerRegistry
+        .get('supabase-auth')
+        .execute(() => this.supabase.auth.getClaims(token));
+    } catch (error) {
+      if (
+        error instanceof CircuitOpenError ||
+        error instanceof DependencyTimeoutError ||
+        error instanceof DependencyConcurrencyError
+      ) {
+        throw new UnauthorizedException(
+          'Authentication service temporarily unavailable',
+        );
+      }
       throw this.invalidToken();
     }
 
@@ -105,3 +123,4 @@ export class SupabaseClaimsVerifier {
     return new UnauthorizedException('Invalid access token');
   }
 }
+

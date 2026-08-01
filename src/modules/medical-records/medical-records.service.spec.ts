@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { StoragePurpose, StorageScanStatus } from '@prisma/client';
+import { CircuitBreakerRegistry } from '../../common/resilience/circuit-breaker-registry';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MedicalFileValidationService } from './medical-file-validation.service';
@@ -69,11 +70,21 @@ describe('MedicalRecordsService', () => {
         }),
       },
     };
+
+    // Pass-through mock: execute(fn) delegates directly to fn() so existing
+    // tests run without real circuit-breaker interference.
+    const mockRegistry = {
+      get: () => ({
+        execute: <T>(fn: () => Promise<T>) => fn(),
+      }),
+    } as unknown as CircuitBreakerRegistry;
+
     service = new MedicalRecordsService(
       mockPrisma as unknown as PrismaService,
       mockAudit as unknown as AuditService,
       validationService,
       mockSupabaseClient as unknown as SupabaseServerClient,
+      mockRegistry,
     );
   });
 

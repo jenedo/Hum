@@ -7,6 +7,11 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import {
+  CircuitOpenError,
+  DependencyConcurrencyError,
+  DependencyTimeoutError,
+} from '../resilience/dependency-circuit-breaker';
 
 function hasProperty<K extends PropertyKey>(
   value: unknown,
@@ -81,6 +86,34 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    // --- Circuit-breaker error detection (before generic status resolution) ---
+    const circuitResult = this.resolveCircuitBreakerStatus(exception);
+    if (circuitResult) {
+      this.logger.warn(
+        `Dependency unavailable on ${request.method} ${request.url}: ${circuitResult.internalReason}`,
+      );
+
+      const correlationId = hasProperty(request, 'correlationId')
+        ? (request.correlationId ?? '')
+        : '';
+
+      if (circuitResult.retryAfter) {
+        response.setHeader('Retry-After', String(circuitResult.retryAfter));
+      }
+
+      response.status(circuitResult.status).json({
+        success: false,
+        error: {
+          code: circuitResult.status,
+          message: circuitResult.clientMessage,
+        },
+        correlationId,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // --- Standard error handling ---
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
@@ -131,5 +164,39 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       correlationId,
       timestamp,
     });
+  }
+
+  private resolveCircuitBreakerStatus(
+    exception: unknown,
+  ): {
+    status: number;
+    clientMessage: string;
+    internalReason: string;
+    retryAfter?: number;
+  } | null {
+    if (exception instanceof CircuitOpenError) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        clientMessage: 'Service temporarily unavailable, please retry shortly',
+        internalReason: exception.message,
+        retryAfter: 30,
+      };
+    }
+    if (exception instanceof DependencyTimeoutError) {
+      return {
+        status: HttpStatus.GATEWAY_TIMEOUT,
+        clientMessage: 'An upstream service did not respond in time',
+        internalReason: exception.message,
+      };
+    }
+    if (exception instanceof DependencyConcurrencyError) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        clientMessage: 'Service temporarily unavailable, please retry shortly',
+        internalReason: exception.message,
+        retryAfter: 5,
+      };
+    }
+    return null;
   }
 }

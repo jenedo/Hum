@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthApiError, JwtHeader, JwtPayload } from '@supabase/supabase-js';
+import { CircuitBreakerRegistry } from '../common/resilience/circuit-breaker-registry';
 import { SupabaseClaimsVerifier } from './supabase-claims.verifier';
 import type { SupabaseServerClient } from './supabase.constants';
 
@@ -54,7 +55,15 @@ describe('SupabaseClaimsVerifier', () => {
       SUPABASE_JWT_AUDIENCE: audience,
     });
 
-    verifier = new SupabaseClaimsVerifier(supabase, configService);
+    // Pass-through mock: execute(fn) just calls fn() directly so existing
+    // claim-verification tests run without real circuit-breaker interference.
+    const mockRegistry = {
+      get: () => ({
+        execute: <T>(fn: () => Promise<T>) => fn(),
+      }),
+    } as unknown as CircuitBreakerRegistry;
+
+    verifier = new SupabaseClaimsVerifier(supabase, configService, mockRegistry);
   });
 
   it('accepts valid ES256 claims', async () => {

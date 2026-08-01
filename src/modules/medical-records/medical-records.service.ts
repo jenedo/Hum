@@ -3,10 +3,12 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { StorageScanStatus } from '@prisma/client';
 import * as crypto from 'crypto';
+import { CircuitBreakerRegistry } from '../../common/resilience/circuit-breaker-registry';
 import { PrismaService } from '../../database/prisma.service';
 import {
   SUPABASE_SECRET_CLIENT,
@@ -21,6 +23,7 @@ import { MedicalFileValidationService } from './medical-file-validation.service'
 export class MedicalRecordsService {
   private readonly BUCKET_NAME = 'private-medical-records';
   private readonly MAX_FILE_SIZE_BYTES = 5242880; // 5 MiB
+  private readonly logger = new Logger(MedicalRecordsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -28,6 +31,7 @@ export class MedicalRecordsService {
     private readonly fileValidationService: MedicalFileValidationService,
     @Inject(SUPABASE_SECRET_CLIENT)
     private readonly supabaseSecretClient: SupabaseServerClient,
+    private readonly circuitBreakerRegistry: CircuitBreakerRegistry,
   ) {}
 
   async createUploadIntent(userId: string, dto: UploadIntentDto) {
@@ -198,15 +202,22 @@ export class MedicalRecordsService {
 
   private async generateSignedUploadUrl(objectPath: string): Promise<string> {
     try {
-      const { data, error } = await this.supabaseSecretClient.storage
-        .from(this.BUCKET_NAME)
-        .createSignedUploadUrl(objectPath);
+      const { data, error } = await this.circuitBreakerRegistry
+        .get('supabase-storage')
+        .execute(() =>
+          this.supabaseSecretClient.storage
+            .from(this.BUCKET_NAME)
+            .createSignedUploadUrl(objectPath),
+        );
 
       if (!error && data?.signedUrl) {
         return data.signedUrl;
       }
-    } catch {
-      // Fallback for offline/test environments
+    } catch (err) {
+      this.logger.warn(
+        `Supabase Storage upload-url unavailable: ${err instanceof Error ? err.name : 'UnknownError'}`,
+      );
+      // Fallback for offline/test environments or circuit-open
     }
     return `https://placeholder-storage.supabase.co/upload/${objectPath}`;
   }
@@ -217,15 +228,22 @@ export class MedicalRecordsService {
     expiresInSeconds: number,
   ): Promise<string> {
     try {
-      const { data, error } = await this.supabaseSecretClient.storage
-        .from(bucket)
-        .createSignedUrl(objectPath, expiresInSeconds);
+      const { data, error } = await this.circuitBreakerRegistry
+        .get('supabase-storage')
+        .execute(() =>
+          this.supabaseSecretClient.storage
+            .from(bucket)
+            .createSignedUrl(objectPath, expiresInSeconds),
+        );
 
       if (!error && data?.signedUrl) {
         return data.signedUrl;
       }
-    } catch {
-      // Fallback for offline/test environments
+    } catch (err) {
+      this.logger.warn(
+        `Supabase Storage download-url unavailable: ${err instanceof Error ? err.name : 'UnknownError'}`,
+      );
+      // Fallback for offline/test environments or circuit-open
     }
     return `https://placeholder-storage.supabase.co/object/sign/${bucket}/${objectPath}?expires=${Math.floor(Date.now() / 1000) + expiresInSeconds}`;
   }
