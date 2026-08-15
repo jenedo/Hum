@@ -1,0 +1,1052 @@
+// AsaanCare 2.0 — Canonical Prisma Schema
+// Generated: 2026-08-14
+// DB: Supabase PostgreSQL (yngsqabpnghmfysiiwaq)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────
+
+enum Role {
+  PATIENT
+  DOCTOR
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  PENDING_VERIFICATION
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum AppMode {
+  PATIENT
+  DOCTOR
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  MORE_INFO_REQUIRED
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum DocumentType {
+  PMDC_CERTIFICATE
+  CNIC_FRONT
+  CNIC_BACK
+  DEGREE
+  EXPERIENCE_LETTER
+  OTHER
+}
+
+enum ScanStatus {
+  PENDING
+  PASSED
+  REJECTED
+  ERROR
+}
+
+enum ConsultMode {
+  VIDEO
+  AUDIO
+  CHAT
+  CLINIC
+}
+
+enum SlotStatus {
+  AVAILABLE
+  HELD
+  BOOKED
+  CANCELLED
+}
+
+enum HoldStatus {
+  ACTIVE
+  EXPIRED
+  CONSUMED
+  RELEASED
+}
+
+enum ExceptionType {
+  BLOCKED
+  MODIFIED_HOURS
+}
+
+enum AppointmentStatus {
+  REQUESTED
+  PAYMENT_PENDING
+  CONFIRMED
+  ACCEPTED
+  RESCHEDULE_PROPOSED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  REJECTED
+  NO_SHOW
+  DISPUTED
+}
+
+enum CancelledBy {
+  PATIENT
+  DOCTOR
+  SYSTEM
+  ADMIN
+}
+
+enum SessionStatus {
+  WAITING_ROOM
+  ACTIVE
+  PAUSED
+  ENDED
+  ABANDONED
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  ISSUED
+  SUPERSEDED
+  VOIDED
+}
+
+enum MedicalRecordType {
+  LAB_RESULT
+  IMAGING
+  REPORT
+  PRESCRIPTION_UPLOAD
+  OTHER
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAYMENT_PROCESSING
+  PAID
+  CONFIRMED
+  PREPARING
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum TxType {
+  APPOINTMENT_FEE
+  PHARMACY_PURCHASE
+  WALLET_TOPUP
+  DOCTOR_EARNING
+  PAYOUT
+  REFUND
+  PLATFORM_FEE
+  ADJUSTMENT
+}
+
+enum TxStatus {
+  PENDING
+  POSTED
+  VOIDED
+}
+
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
+enum PaymentProvider {
+  SANDBOX
+  JAZZCASH
+  EASYPAISA
+}
+
+enum IntentStatus {
+  CREATED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum AttemptStatus {
+  INITIATED
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum EarningStatus {
+  PENDING
+  AVAILABLE
+  PAID
+  DISPUTED
+}
+
+enum PayoutStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  PROCESSING
+  PAID
+  FAILED
+  REJECTED
+  CANCELLED
+}
+
+enum NotifStatus {
+  QUEUED
+  SENT
+  FAILED
+  PARTIAL
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENDING
+  DELIVERED
+  FAILED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+  DEAD
+}
+
+// ─── REFERENCE DATA ──────────────────────────────────────
+
+model Specialty {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  iconKey     String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  doctorSpecialties DoctorSpecialty[]
+}
+
+model City {
+  id        String  @id @default(cuid())
+  name      String
+  province  String
+  country   String  @default("PK")
+  isActive  Boolean @default(true)
+
+  doctors DoctorProfile[]
+
+  @@unique([name, province, country])
+}
+
+// ─── IDENTITY ────────────────────────────────────────────
+
+model User {
+  id                  String     @id @default(cuid())
+  supabaseAuthUserId  String     @unique @db.Uuid
+  email               String     @unique
+  phone               String?    @unique
+  role                Role       @default(PATIENT)
+  status              UserStatus @default(ACTIVE)
+  createdAt           DateTime   @default(now()) @db.Timestamptz()
+  updatedAt           DateTime   @updatedAt @db.Timestamptz()
+
+  patientProfile      PatientProfile?
+  doctorProfile       DoctorProfile?
+  devices             UserDevice[]
+  wallet              Wallet?
+  auditActions        AuditLog[]      @relation("AuditActor")
+  payoutRequests      PayoutRequest[] @relation("PayoutRequestor")
+  payoutReviews       PayoutRequest[] @relation("PayoutReviewer")
+  idempotencyKeys     IdempotencyKey[]
+  notifications       Notification[]
+  paymentIntents      PaymentIntent[]
+}
+
+model UserDevice {
+  id             String         @id @default(cuid())
+  userId         String
+  installationId String
+  fcmToken       String?        @unique
+  platform       DevicePlatform
+  appMode        AppMode
+  appVersion     String?
+  isActive       Boolean        @default(true)
+  lastSeenAt     DateTime?      @db.Timestamptz()
+  revokedAt      DateTime?      @db.Timestamptz()
+  createdAt      DateTime       @default(now()) @db.Timestamptz()
+
+  user                  User                   @relation(fields: [userId], references: [id])
+  notificationDeliveries NotificationDelivery[]
+
+  @@unique([userId, installationId, appMode])
+}
+
+// ─── PATIENT ─────────────────────────────────────────────
+
+model PatientProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  fullName        String
+  dateOfBirth     DateTime? @db.Date
+  gender          String?
+  bloodGroup      String?
+  emergencyName   String?
+  emergencyPhone  String?
+  languageCode    String   @default("ur")
+  profileComplete Boolean  @default(false)
+  createdAt       DateTime @default(now()) @db.Timestamptz()
+  updatedAt       DateTime @updatedAt @db.Timestamptz()
+
+  user          User            @relation(fields: [userId], references: [id])
+  addresses     PatientAddress[]
+  appointments  Appointment[]
+  prescriptions Prescription[]
+  medicalRecords MedicalRecord[]
+  cart          Cart?
+  bookingHolds  BookingHold[]
+  orders        PharmacyOrder[]
+}
+
+model PatientAddress {
+  id            String   @id @default(cuid())
+  patientId     String
+  label         String
+  recipientName String
+  phone         String
+  line1         String
+  line2         String?
+  city          String
+  province      String
+  postalCode    String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now()) @db.Timestamptz()
+  deletedAt     DateTime? @db.Timestamptz()
+
+  patient PatientProfile  @relation(fields: [patientId], references: [id])
+  orders  PharmacyOrder[]
+}
+
+// ─── DOCTOR ──────────────────────────────────────────────
+
+model DoctorProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  fullName       String
+  pmdcNumber     String   @unique
+  gender         String?
+  bio            String?
+  profileImageKey String?
+  cityId         String?
+  isDiscoverable Boolean  @default(false)
+  consultFeeMinor BigInt?
+  currency       String   @default("PKR")
+  createdAt      DateTime @default(now()) @db.Timestamptz()
+  updatedAt      DateTime @updatedAt @db.Timestamptz()
+
+  user              User                      @relation(fields: [userId], references: [id])
+  city              City?                     @relation(fields: [cityId], references: [id])
+  specialties       DoctorSpecialty[]
+  qualifications    DoctorQualification[]
+  languages         DoctorLanguage[]
+  application       DoctorApplication?
+  availabilityRules DoctorAvailabilityRule[]
+  exceptions        DoctorAvailabilityException[]
+  slots             DoctorSlot[]
+  appointments      Appointment[]
+  consultationNotes ConsultationNote[]
+  prescriptions     Prescription[]
+  earnings          DoctorEarning[]
+  payoutRequests    PayoutRequest[]           @relation("PayoutDoctor")
+}
+
+model DoctorSpecialty {
+  id              String   @id @default(cuid())
+  doctorProfileId String
+  specialtyId     String
+  isPrimary       Boolean  @default(false)
+  createdAt       DateTime @default(now()) @db.Timestamptz()
+
+  doctor    DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+  specialty Specialty     @relation(fields: [specialtyId], references: [id])
+
+  @@unique([doctorProfileId, specialtyId])
+}
+
+model DoctorQualification {
+  id              String   @id @default(cuid())
+  doctorProfileId String
+  degree          String
+  institution     String
+  yearCompleted   Int?
+  country         String?
+  createdAt       DateTime @default(now()) @db.Timestamptz()
+
+  doctor DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+}
+
+model DoctorLanguage {
+  id              String  @id @default(cuid())
+  doctorProfileId String
+  languageCode    String
+  proficiency     String?
+
+  doctor DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorProfileId, languageCode])
+}
+
+model DoctorApplication {
+  id              String            @id @default(cuid())
+  doctorProfileId String            @unique
+  status          ApplicationStatus @default(DRAFT)
+  submittedAt     DateTime?         @db.Timestamptz()
+  reviewedAt      DateTime?         @db.Timestamptz()
+  reviewedById    String?
+  rejectionReason String?
+  adminNotes      String?
+  createdAt       DateTime          @default(now()) @db.Timestamptz()
+  updatedAt       DateTime          @updatedAt @db.Timestamptz()
+
+  doctor    DoctorProfile              @relation(fields: [doctorProfileId], references: [id])
+  documents DoctorApplicationDocument[]
+}
+
+model DoctorApplicationDocument {
+  id            String       @id @default(cuid())
+  applicationId String
+  documentType  DocumentType
+  storageKey    String
+  mimeType      String
+  sizeBytes     Int
+  uploadedAt    DateTime     @default(now()) @db.Timestamptz()
+  scanStatus    ScanStatus   @default(PENDING)
+
+  application DoctorApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+// ─── AVAILABILITY ─────────────────────────────────────────
+
+model DoctorAvailabilityRule {
+  id              String      @id @default(cuid())
+  doctorProfileId String
+  dayOfWeek       Int
+  startMinutes    Int
+  endMinutes      Int
+  slotDurationMin Int
+  feeMinor        BigInt
+  currency        String      @default("PKR")
+  isActive        Boolean     @default(true)
+  timezone        String      @default("Asia/Karachi")
+  createdAt       DateTime    @default(now()) @db.Timestamptz()
+  updatedAt       DateTime    @updatedAt @db.Timestamptz()
+
+  doctor DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+  slots  DoctorSlot[]
+
+  @@unique([doctorProfileId, dayOfWeek, startMinutes])
+}
+
+model DoctorAvailabilityException {
+  id              String        @id @default(cuid())
+  doctorProfileId String
+  date            DateTime      @db.Date
+  type            ExceptionType
+  startMinutes    Int?
+  endMinutes      Int?
+  reason          String?
+  createdAt       DateTime      @default(now()) @db.Timestamptz()
+
+  doctor DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+}
+
+model DoctorSlot {
+  id              String     @id @default(cuid())
+  doctorProfileId String
+  ruleId          String?
+  slotStart       DateTime   @db.Timestamptz()
+  slotEnd         DateTime   @db.Timestamptz()
+  mode            ConsultMode
+  feeMinor        BigInt
+  currency        String     @default("PKR")
+  status          SlotStatus @default(AVAILABLE)
+  createdAt       DateTime   @default(now()) @db.Timestamptz()
+
+  doctor       DoctorProfile           @relation(fields: [doctorProfileId], references: [id])
+  rule         DoctorAvailabilityRule? @relation(fields: [ruleId], references: [id])
+  holds        BookingHold[]
+  appointments Appointment[]
+
+  @@unique([doctorProfileId, slotStart, mode])
+}
+
+model BookingHold {
+  id        String     @id @default(cuid())
+  slotId    String
+  patientId String
+  expiresAt DateTime   @db.Timestamptz()
+  status    HoldStatus @default(ACTIVE)
+  createdAt DateTime   @default(now()) @db.Timestamptz()
+
+  slot    DoctorSlot     @relation(fields: [slotId], references: [id])
+  patient PatientProfile @relation(fields: [patientId], references: [id])
+}
+
+// ─── APPOINTMENT & CONSULTATION ───────────────────────────
+
+model Appointment {
+  id               String            @id @default(cuid())
+  patientProfileId String
+  doctorProfileId  String
+  slotId           String?
+  mode             ConsultMode
+  status           AppointmentStatus @default(REQUESTED)
+  feeMinor         BigInt
+  currency         String            @default("PKR")
+  patientNote      String?
+  cancelReason     String?
+  cancelledBy      CancelledBy?
+  scheduledStart   DateTime          @db.Timestamptz()
+  scheduledEnd     DateTime          @db.Timestamptz()
+  confirmedAt      DateTime?         @db.Timestamptz()
+  startedAt        DateTime?         @db.Timestamptz()
+  completedAt      DateTime?         @db.Timestamptz()
+  cancelledAt      DateTime?         @db.Timestamptz()
+  createdAt        DateTime          @default(now()) @db.Timestamptz()
+  updatedAt        DateTime          @updatedAt @db.Timestamptz()
+
+  patient         PatientProfile           @relation(fields: [patientProfileId], references: [id])
+  doctor          DoctorProfile            @relation(fields: [doctorProfileId], references: [id])
+  slot            DoctorSlot?              @relation(fields: [slotId], references: [id])
+  statusHistory   AppointmentStatusHistory[]
+  session         ConsultationSession?
+  prescription    Prescription?
+  earning         DoctorEarning?
+}
+
+model AppointmentStatusHistory {
+  id            String            @id @default(cuid())
+  appointmentId String
+  fromStatus    AppointmentStatus?
+  toStatus      AppointmentStatus
+  actorId       String?
+  reason        String?
+  createdAt     DateTime          @default(now()) @db.Timestamptz()
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+model ConsultationSession {
+  id            String        @id @default(cuid())
+  appointmentId String        @unique
+  status        SessionStatus @default(WAITING_ROOM)
+  providerRoomId String?
+  startedAt     DateTime?     @db.Timestamptz()
+  endedAt       DateTime?     @db.Timestamptz()
+  durationSeconds Int?
+  createdAt     DateTime      @default(now()) @db.Timestamptz()
+
+  appointment Appointment        @relation(fields: [appointmentId], references: [id])
+  notes       ConsultationNote[]
+}
+
+model ConsultationNote {
+  id        String   @id @default(cuid())
+  sessionId String
+  doctorId  String
+  noteText  String
+  isPrivate Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz()
+  updatedAt DateTime @updatedAt @db.Timestamptz()
+
+  session ConsultationSession @relation(fields: [sessionId], references: [id])
+  doctor  DoctorProfile       @relation(fields: [doctorId], references: [id])
+}
+
+// ─── CLINICAL ─────────────────────────────────────────────
+
+model Prescription {
+  id               String             @id @default(cuid())
+  appointmentId    String             @unique
+  doctorProfileId  String
+  patientProfileId String
+  status           PrescriptionStatus @default(DRAFT)
+  version          Int                @default(1)
+  supersedesId     String?
+  diagnosis        String?
+  instructions     String?
+  issuedAt         DateTime?          @db.Timestamptz()
+  voidedAt         DateTime?          @db.Timestamptz()
+  voidReason       String?
+  createdAt        DateTime           @default(now()) @db.Timestamptz()
+  updatedAt        DateTime           @updatedAt @db.Timestamptz()
+
+  appointment Appointment           @relation(fields: [appointmentId], references: [id])
+  doctor      DoctorProfile         @relation(fields: [doctorProfileId], references: [id])
+  patient     PatientProfile        @relation(fields: [patientProfileId], references: [id])
+  supersedes  Prescription?         @relation("PrescriptionVersion", fields: [supersedesId], references: [id])
+  supersededBy Prescription[]       @relation("PrescriptionVersion")
+  medicines   PrescriptionMedicine[]
+  orders      PharmacyOrder[]
+}
+
+model PrescriptionMedicine {
+  id             String  @id @default(cuid())
+  prescriptionId String
+  medicineName   String
+  genericName    String?
+  dosage         String
+  frequency      String
+  duration       String
+  quantity       Int?
+  unit           String?
+  instructions   String?
+  sortOrder      Int     @default(0)
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+}
+
+model MedicalRecord {
+  id               String            @id @default(cuid())
+  patientProfileId String
+  title            String
+  recordType       MedicalRecordType
+  storageKey       String
+  mimeType         String
+  sizeBytes        Int
+  hash             String?
+  scanStatus       ScanStatus        @default(PENDING)
+  uploadedByRole   Role
+  appointmentId    String?
+  isAvailable      Boolean           @default(false)
+  createdAt        DateTime          @default(now()) @db.Timestamptz()
+  deletedAt        DateTime?         @db.Timestamptz()
+
+  patient PatientProfile @relation(fields: [patientProfileId], references: [id])
+}
+
+// ─── PHARMACY ─────────────────────────────────────────────
+
+model MedicineCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  imageKey    String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  products MedicineProduct[]
+}
+
+model MedicineProduct {
+  id              String   @id @default(cuid())
+  categoryId      String
+  sku             String   @unique
+  genericName     String
+  brandName       String
+  strength        String?
+  dosageForm      String
+  manufacturer    String?
+  packSize        Int      @default(1)
+  prescriptionReq Boolean  @default(false)
+  priceMinor      BigInt
+  currency        String   @default("PKR")
+  description     String?
+  imageKey        String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz()
+  updatedAt       DateTime @updatedAt @db.Timestamptz()
+
+  category   MedicineCategory  @relation(fields: [categoryId], references: [id])
+  inventory  MedicineInventory?
+  cartItems  CartItem[]
+  orderItems PharmacyOrderItem[]
+}
+
+model MedicineInventory {
+  id           String   @id @default(cuid())
+  productId    String   @unique
+  qtyOnHand    Int      @default(0)
+  qtyReserved  Int      @default(0)
+  reorderLevel Int      @default(10)
+  updatedAt    DateTime @updatedAt @db.Timestamptz()
+
+  product MedicineProduct @relation(fields: [productId], references: [id])
+}
+
+model Cart {
+  id        String   @id @default(cuid())
+  patientId String   @unique
+  currency  String   @default("PKR")
+  createdAt DateTime @default(now()) @db.Timestamptz()
+  updatedAt DateTime @updatedAt @db.Timestamptz()
+
+  patient PatientProfile @relation(fields: [patientId], references: [id])
+  items   CartItem[]
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int
+  addedAt   DateTime @default(now()) @db.Timestamptz()
+  updatedAt DateTime @updatedAt @db.Timestamptz()
+
+  cart    Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product MedicineProduct @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+model PharmacyOrder {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  patientId       String
+  prescriptionId  String?
+  addressId       String
+  status          OrderStatus @default(PENDING_PAYMENT)
+  subtotalMinor   BigInt
+  deliveryMinor   BigInt      @default(0)
+  discountMinor   BigInt      @default(0)
+  totalMinor      BigInt
+  currency        String      @default("PKR")
+  idempotencyKey  String      @unique
+  addrSnapLine1   String
+  addrSnapCity    String
+  addrSnapPhone   String
+  createdAt       DateTime    @default(now()) @db.Timestamptz()
+  updatedAt       DateTime    @updatedAt @db.Timestamptz()
+
+  patient        PatientProfile      @relation(fields: [patientId], references: [id])
+  prescription   Prescription?       @relation(fields: [prescriptionId], references: [id])
+  address        PatientAddress      @relation(fields: [addressId], references: [id])
+  items          PharmacyOrderItem[]
+}
+
+model PharmacyOrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  productId     String
+  skuSnap       String
+  nameSnap      String
+  priceSnap     BigInt
+  quantity      Int
+  lineTotalMinor BigInt
+  createdAt     DateTime @default(now()) @db.Timestamptz()
+
+  order   PharmacyOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product MedicineProduct @relation(fields: [productId], references: [id])
+}
+
+// ─── FINANCE ──────────────────────────────────────────────
+
+model LedgerAccount {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  name        String
+  type        AccountType
+  description String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now()) @db.Timestamptz()
+
+  transactions LedgerEntry[]
+  wallets      Wallet[]
+}
+
+model LedgerTransaction {
+  id             String    @id @default(cuid())
+  idempotencyKey String    @unique
+  type           TxType
+  description    String
+  reference      String?
+  referenceType  String?
+  status         TxStatus  @default(PENDING)
+  createdAt      DateTime  @default(now()) @db.Timestamptz()
+  postedAt       DateTime? @db.Timestamptz()
+
+  entries LedgerEntry[]
+}
+
+model LedgerEntry {
+  id            String    @id @default(cuid())
+  transactionId String
+  accountId     String
+  type          EntryType
+  amountMinor   BigInt
+  currency      String    @default("PKR")
+  balanceAfter  BigInt
+  createdAt     DateTime  @default(now()) @db.Timestamptz()
+
+  transaction LedgerTransaction @relation(fields: [transactionId], references: [id])
+  account     LedgerAccount     @relation(fields: [accountId], references: [id])
+}
+
+model Wallet {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  balanceMinor    BigInt   @default(0)
+  currency        String   @default("PKR")
+  ledgerAccountId String?
+  createdAt       DateTime @default(now()) @db.Timestamptz()
+  updatedAt       DateTime @updatedAt @db.Timestamptz()
+
+  user          User           @relation(fields: [userId], references: [id])
+  ledgerAccount LedgerAccount? @relation(fields: [ledgerAccountId], references: [id])
+}
+
+model PaymentIntent {
+  id             String       @id @default(cuid())
+  userId         String
+  entityType     String
+  entityId       String
+  amountMinor    BigInt
+  currency       String       @default("PKR")
+  provider       PaymentProvider
+  idempotencyKey String       @unique
+  status         IntentStatus @default(CREATED)
+  expiresAt      DateTime     @db.Timestamptz()
+  createdAt      DateTime     @default(now()) @db.Timestamptz()
+  updatedAt      DateTime     @updatedAt @db.Timestamptz()
+
+  user         User           @relation(fields: [userId], references: [id])
+  attempts     PaymentAttempt[]
+
+}
+
+model PaymentAttempt {
+  id             String        @id @default(cuid())
+  intentId       String
+  provider       PaymentProvider
+  providerRef    String?       @unique
+  amountMinor    BigInt
+  currency       String        @default("PKR")
+  status         AttemptStatus @default(INITIATED)
+  providerPayload Json?
+  idempotencyKey String        @unique
+  createdAt      DateTime      @default(now()) @db.Timestamptz()
+  updatedAt      DateTime      @updatedAt @db.Timestamptz()
+
+  intent  PaymentIntent          @relation(fields: [intentId], references: [id])
+  events  PaymentProviderEvent[]
+  refunds Refund[]
+}
+
+model PaymentProviderEvent {
+  id            String          @id @default(cuid())
+  provider      PaymentProvider
+  eventId       String          @unique
+  eventType     String
+  signatureValid Boolean
+  payloadHash   String
+  attemptId     String?
+  processed     Boolean         @default(false)
+  processedAt   DateTime?       @db.Timestamptz()
+  failureReason String?
+  createdAt     DateTime        @default(now()) @db.Timestamptz()
+
+  attempt PaymentAttempt? @relation(fields: [attemptId], references: [id])
+}
+
+model Refund {
+  id             String       @id @default(cuid())
+  attemptId      String
+  amountMinor    BigInt
+  currency       String       @default("PKR")
+  reason         String
+  status         RefundStatus @default(PENDING)
+  providerRef    String?
+  initiatedById  String?
+  idempotencyKey String       @unique
+  createdAt      DateTime     @default(now()) @db.Timestamptz()
+  updatedAt      DateTime     @updatedAt @db.Timestamptz()
+
+  attempt PaymentAttempt @relation(fields: [attemptId], references: [id])
+}
+
+model DoctorEarning {
+  id              String        @id @default(cuid())
+  doctorProfileId String
+  appointmentId   String        @unique
+  grossMinor      BigInt
+  platformFeeMinor BigInt       @default(0)
+  netMinor        BigInt
+  currency        String        @default("PKR")
+  status          EarningStatus @default(PENDING)
+  createdAt       DateTime      @default(now()) @db.Timestamptz()
+
+  doctor      DoctorProfile @relation(fields: [doctorProfileId], references: [id])
+  appointment Appointment   @relation(fields: [appointmentId], references: [id])
+}
+
+model PayoutRequest {
+  id              String       @id @default(cuid())
+  doctorProfileId String
+  amountMinor     BigInt
+  currency        String       @default("PKR")
+  status          PayoutStatus @default(PENDING)
+  idempotencyKey  String       @unique
+  periodStart     DateTime?    @db.Timestamptz()
+  periodEnd       DateTime?    @db.Timestamptz()
+  requestedById   String
+  reviewedById    String?
+  providerRef     String?
+  rejectionReason String?
+  createdAt       DateTime     @default(now()) @db.Timestamptz()
+  updatedAt       DateTime     @updatedAt @db.Timestamptz()
+
+  doctor      DoctorProfile @relation("PayoutDoctor", fields: [doctorProfileId], references: [id])
+  requestedBy User          @relation("PayoutRequestor", fields: [requestedById], references: [id])
+  reviewedBy  User?         @relation("PayoutReviewer", fields: [reviewedById], references: [id])
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────
+
+model Notification {
+  id         String      @id @default(cuid())
+  userId     String
+  type       String
+  titleKey   String
+  bodyKey    String
+  entityType String?
+  entityId   String?
+  deepLink   String?
+  status     NotifStatus @default(QUEUED)
+  createdAt  DateTime    @default(now()) @db.Timestamptz()
+  sentAt     DateTime?   @db.Timestamptz()
+
+  user      User                   @relation(fields: [userId], references: [id])
+  deliveries NotificationDelivery[]
+}
+
+model NotificationDelivery {
+  id             String         @id @default(cuid())
+  notificationId String
+  deviceId       String
+  providerMsgId  String?
+  status         DeliveryStatus @default(QUEUED)
+  attemptCount   Int            @default(0)
+  nextAttemptAt  DateTime?      @db.Timestamptz()
+  lastErrorCode  String?
+  createdAt      DateTime       @default(now()) @db.Timestamptz()
+  sentAt         DateTime?      @db.Timestamptz()
+
+  notification Notification @relation(fields: [notificationId], references: [id])
+  device       UserDevice   @relation(fields: [deviceId], references: [id])
+}
+
+model NotificationPreference {
+  userId         String  @id
+  appointments   Boolean @default(true)
+  consultations  Boolean @default(true)
+  prescriptions  Boolean @default(true)
+  pharmacy       Boolean @default(true)
+  payments       Boolean @default(true)
+  marketing      Boolean @default(false)
+  quietHoursStart Int?
+  quietHoursEnd   Int?
+  timezone       String  @default("Asia/Karachi")
+  updatedAt      DateTime @updatedAt @db.Timestamptz()
+}
+
+// ─── ASYNC ────────────────────────────────────────────────
+
+model OutboxEvent {
+  id            String      @id @default(cuid())
+  eventType     String
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  maxAttempts   Int          @default(5)
+  availableAt   DateTime     @default(now()) @db.Timestamptz()
+  processedAt   DateTime?    @db.Timestamptz()
+  lastError     String?
+  createdAt     DateTime     @default(now()) @db.Timestamptz()
+}
+
+// ─── AUDIT ────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorRole   String?
+  action      String
+  entityType  String
+  entityId    String
+  requestId   String?
+  ipAddress   String?
+  userAgent   String?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz()
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id])
+}
+
+model DataAccessLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  actorRole    String?
+  action       String
+  resourceType String
+  resourceId   String
+  patientId    String?
+  requestId    String?
+  ipAddress    String?
+  createdAt    DateTime @default(now()) @db.Timestamptz()
+}
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  userId       String
+  scope        String
+  key          String
+  requestHash  String
+  responseJson Json?
+  resourceId   String?
+  createdAt    DateTime @default(now()) @db.Timestamptz()
+  updatedAt    DateTime @updatedAt @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, scope, key])
+}

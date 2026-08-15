@@ -1,0 +1,303 @@
+// Prisma Schema for AsaanCare Backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Enums
+
+enum UserRole {
+  ADMIN
+  DOCTOR
+  PATIENT
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// Models
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  full_name  String
+  phone      String?
+  role       UserRole @default(PATIENT)
+  avatar_url String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  doctor         Doctor?
+  patient        Patient?
+  notifications  Notification[]
+  uploaded_files UploadedFile[]
+
+  @@index([role])
+  @@index([email])
+  @@map("users")
+}
+
+model Doctor {
+  id                   String   @id @default(uuid())
+  user_id              String   @unique
+  specialty_id         String?
+  specialization       String
+  license_number       String   @unique
+  qualification        String
+  experience_years     Int      @default(0)
+  languages            String[] @default([])
+  consultation_fee     Int
+  hospital_clinic_name String?
+  city                 String
+  gender               String?
+  rating               Float    @default(5.0)
+  review_count         Int      @default(0)
+  is_verified          Boolean  @default(false)
+  is_online            Boolean  @default(false)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  user               User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  specialty          Specialty?         @relation(fields: [specialty_id], references: [id], onDelete: SetNull)
+  availability_slots AvailabilitySlot[]
+  appointments       Appointment[]
+  prescriptions      Prescription[]
+  medical_records    MedicalRecord[]
+  reviews            Review[]
+
+  @@index([user_id])
+  @@index([specialty_id])
+  @@index([city])
+  @@index([specialization])
+  @@index([is_verified])
+  @@index([city, specialization])
+  @@map("doctors")
+}
+
+model Patient {
+  id                String    @id @default(uuid())
+  user_id           String    @unique
+  date_of_birth     DateTime?
+  gender            String?
+  blood_group       String?
+  medical_history   String?
+  emergency_contact String?
+  city              String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+  prescriptions   Prescription[]
+  medical_records MedicalRecord[]
+  reviews         Review[]
+  payments        Payment[]
+
+  @@index([user_id])
+  @@index([city])
+  @@map("patients")
+}
+
+model Appointment {
+  id                String            @id @default(uuid())
+  patient_id        String
+  doctor_id         String
+  slot_id           String?
+  appointment_time  DateTime
+  status            AppointmentStatus @default(PENDING)
+  consultation_type String            @default("video")
+  fee               Int
+  notes             String?
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  patient         Patient           @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor          Doctor            @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  slot            AvailabilitySlot? @relation(fields: [slot_id], references: [id], onDelete: SetNull)
+  prescription    Prescription?
+  medical_records MedicalRecord[]
+  review          Review?
+  payment         Payment?
+
+  @@unique([doctor_id, appointment_time])
+  @@index([doctor_id])
+  @@index([patient_id])
+  @@index([status])
+  @@index([appointment_time])
+  @@map("appointments")
+}
+
+model Specialty {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  icon_url    String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  doctors Doctor[]
+
+  @@index([name])
+  @@map("specialties")
+}
+
+model AvailabilitySlot {
+  id                     String   @id @default(uuid())
+  doctor_id              String
+  day_of_week            Int?
+  start_time             DateTime
+  end_time               DateTime
+  slot_duration_minutes Int      @default(30)
+  is_booked              Boolean  @default(false)
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  doctor       Doctor        @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@index([doctor_id])
+  @@map("availability_slots")
+}
+
+model Prescription {
+  id             String   @id @default(uuid())
+  appointment_id String?  @unique
+  doctor_id      String
+  patient_id     String
+  diagnosis      String
+  instructions   String?
+  medicines      Json
+  file_url       String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  appointment Appointment? @relation(fields: [appointment_id], references: [id], onDelete: SetNull)
+  doctor      Doctor       @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  patient     Patient      @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([doctor_id])
+  @@index([patient_id])
+  @@index([appointment_id])
+  @@map("prescriptions")
+}
+
+model MedicalRecord {
+  id             String   @id @default(uuid())
+  patient_id     String
+  doctor_id      String?
+  appointment_id String?
+  title          String
+  record_type    String
+  description    String?
+  file_url       String
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  patient     Patient      @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor      Doctor?      @relation(fields: [doctor_id], references: [id], onDelete: SetNull)
+  appointment Appointment? @relation(fields: [appointment_id], references: [id], onDelete: SetNull)
+
+  @@index([patient_id])
+  @@index([doctor_id])
+  @@index([appointment_id])
+  @@index([record_type])
+  @@map("medical_records")
+}
+
+model Review {
+  id             String   @id @default(uuid())
+  patient_id     String
+  doctor_id      String
+  appointment_id String?  @unique
+  rating         Int
+  comment        String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  patient     Patient      @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  doctor      Doctor       @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointment_id], references: [id], onDelete: SetNull)
+
+  @@index([doctor_id])
+  @@index([patient_id])
+  @@index([appointment_id])
+  @@map("reviews")
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  user_id    String
+  title      String
+  message    String
+  type       String
+  is_read    Boolean  @default(false)
+  data       Json?
+  created_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_read])
+  @@index([user_id, is_read])
+  @@map("notifications")
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  appointment_id String?       @unique
+  patient_id     String
+  amount         Int
+  currency       String        @default("PKR")
+  provider       String
+  status         PaymentStatus @default(PENDING)
+  transaction_id String?       @unique
+  raw_response   Json?
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+
+  appointment Appointment? @relation(fields: [appointment_id], references: [id], onDelete: SetNull)
+  patient     Patient      @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([patient_id])
+  @@index([appointment_id])
+  @@index([status])
+  @@index([transaction_id])
+  @@map("payments")
+}
+
+model UploadedFile {
+  id         String   @id @default(uuid())
+  user_id    String
+  bucket     String
+  file_path  String
+  file_name  String
+  file_size  Int
+  mime_type  String
+  public_url String
+  created_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([bucket])
+  @@index([user_id, bucket])
+  @@map("uploaded_files")
+}
